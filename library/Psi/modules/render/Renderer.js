@@ -8,6 +8,22 @@ class Renderer {
   // canonical analysis-grid peak.
   static LOG_ALPHA = 200;
 
+  // Nodal overlay colours, chosen to be mutually discernible against
+  // the rocket colourmap and visually neutral enough to read well on
+  // both light and dark backgrounds.
+  //
+  // Radial nodes (concentric circles) — warm goldenrod amber.
+  //   Sits clearly above the cool purple/blue shadows of rocket without
+  //   clashing with the hot-white peak region.
+  // Angular nodes (cones / meridional lines) — slate cyan-teal.
+  //   Provides strong hue separation from amber while remaining quiet
+  //   enough not to dominate the density structure.
+  //
+  // Both are defined at full opacity here; the per-frame alpha from
+  // params.nodeOverlayAlpha is applied at render time.
+  static NODE_COLOUR_RADIAL  = [220, 170,  50]; // goldenrod amber  (RGB)
+  static NODE_COLOUR_ANGULAR = [ 72, 202, 195]; // slate cyan-teal  (RGB)
+
   constructor(appcore) {
     this.appcore = appcore;
     this.buffer = null;
@@ -270,11 +286,14 @@ class Renderer {
     };
   }
 
-  _renderNodeTypeKey(radialCount, angularCount) {
+  _renderNodeTypeKey(radialCount, angularCount, overlayAlpha) {
     const panelX = 20;
     const panelY = height - 78;
-    const radialColour = [31, 119, 180, 230];
-    const angularColour = [214, 39, 40, 235];
+    // Apply the same user-controlled alpha to the legend swatches so they
+    // always match the on-canvas lines.
+    const a = Math.round(constrain(overlayAlpha, 0, 1) * 255);
+    const [rR, rG, rB] = Renderer.NODE_COLOUR_RADIAL;
+    const [aR, aG, aB] = Renderer.NODE_COLOUR_ANGULAR;
 
     push();
 
@@ -285,13 +304,13 @@ class Renderer {
 
     strokeWeight(2);
 
-    stroke(...radialColour);
+    stroke(rR, rG, rB, a);
     line(panelX + 12, panelY + 30, panelX + 32, panelY + 30);
     noStroke();
     fill(255);
     text(`Radial: ${radialCount}`, panelX + 40, panelY + 23);
 
-    stroke(...angularColour);
+    stroke(aR, aG, aB, a);
     line(panelX + 12, panelY + 52, panelX + 32, panelY + 52);
     noStroke();
     fill(255);
@@ -306,6 +325,14 @@ class Renderer {
     if (!analyser || typeof analyser.computeNodeOverlayData !== "function") {
       return;
     }
+
+    // Resolve the user-controlled opacity and derive the 0-255 alpha byte.
+    const overlayAlpha = constrain(
+      Number(params.nodeOverlayAlpha ?? 0.9),
+      0,
+      1,
+    );
+    const alphaByte = Math.round(overlayAlpha * 255);
 
     const { axis1, axis2, fixedAxis } = this.appcore.getPlaneAxes();
     const viewRadius = Math.max(1e-6, Number(params.viewRadius) || 1);
@@ -322,8 +349,12 @@ class Renderer {
     const radialNodeRadii = overlayData.radialNodeRadii || [];
     const angularNodeThetas = overlayData.angularNodeThetas || [];
     const angularNodePhis = overlayData.angularNodePhis || [];
-    const radialColour = [31, 119, 180, 230];
-    const angularColour = [214, 39, 40, 235];
+
+    // Build p5 colour arrays with the live alpha byte.
+    const [rR, rG, rB] = Renderer.NODE_COLOUR_RADIAL;
+    const [aR, aG, aB] = Renderer.NODE_COLOUR_ANGULAR;
+    const radialColour  = [rR, rG, rB, alphaByte];
+    const angularColour = [aR, aG, aB, alphaByte];
 
     const pixelScale = Math.min(width, height) / (2 * viewRadius);
 
@@ -469,6 +500,7 @@ class Renderer {
     this._renderNodeTypeKey(
       radialNodeRadii.length,
       angularNodeThetas.length + angularNodePhis.length,
+      overlayAlpha,
     );
   }
 

@@ -253,6 +253,14 @@ class InputHandler {
     } else if (match("quantumM", 0) || match("quantumM", 1)) {
       this.appcore.updateQuantumNumbers("m", match("quantumM", 0) ? 1 : -1);
       logMsg = `m changed to ${this.appcore.params.m}`;
+    } else if (match("nodeOverlayAlpha", 0)) {
+      // F  — increase node overlay opacity by 0.05
+      this.appcore.adjustNodeOverlayAlpha(0.05);
+      logMsg = `Node overlay opacity = ${this.appcore.params.nodeOverlayAlpha.toFixed(2)}`;
+    } else if (match("nodeOverlayAlpha", 1)) {
+      // V  — decrease node overlay opacity by 0.05
+      this.appcore.adjustNodeOverlayAlpha(-0.05);
+      logMsg = `Node overlay opacity = ${this.appcore.params.nodeOverlayAlpha.toFixed(2)}`;
     }
 
     const matchedPlane =

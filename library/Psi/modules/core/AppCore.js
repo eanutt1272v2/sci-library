@@ -45,6 +45,10 @@ class AppCore {
       renderLegend: true,
       renderKeymapRef: false,
 
+      // Opacity of the nodal detection overlay lines [0, 1].
+      // 1.0 = fully opaque, 0.0 = invisible.
+      nodeOverlayAlpha: 0.9,
+
       viewRadius: 45,
       slicePlane: "xz",
       sliceOffset: 0,
@@ -200,6 +204,16 @@ class AppCore {
 
   adjustResolution(delta) {
     this.params.resolution = constrain(this.params.resolution + delta, 64, 512);
+    this.refreshGUI();
+    this.requestRender();
+  }
+
+  // Adjusts nodeOverlayAlpha by delta, clamped to [0, 1].
+  adjustNodeOverlayAlpha(delta) {
+    this.params.nodeOverlayAlpha = Math.max(
+      0,
+      Math.min(1, Math.round((this.params.nodeOverlayAlpha + delta) * 100) / 100),
+    );
     this.refreshGUI();
     this.requestRender();
   }
@@ -400,6 +414,12 @@ class AppCore {
     params.renderNodeOverlay = Boolean(params.renderNodeOverlay);
     params.renderLegend = params.renderLegend !== false;
     params.renderKeymapRef = Boolean(params.renderKeymapRef);
+    params.nodeOverlayAlpha = this._clampNumber(
+      params.nodeOverlayAlpha,
+      0,
+      1,
+      0.9,
+    );
   }
 
   _sanitiseSliceAndViewParams(params) {

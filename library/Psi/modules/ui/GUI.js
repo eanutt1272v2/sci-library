@@ -266,6 +266,20 @@ class GUI {
       })
       .on("change", () => this.appcore.requestRender());
 
+    // nodeOverlayAlpha: exposed directly beneath the colour map dropdown,
+    // following the same withHint pattern used by every other adjustable
+    // render parameter.  The slider range [0, 1] with step 0.01 matches the
+    // precision of the keyboard increment (0.05 rounded to 2 d.p.).
+    overlay
+      .addBinding(this.appcore.params, "nodeOverlayAlpha", {
+        label: this.withHint("Node Overlay Opacity", "nodeOverlayAlpha", "F/V"),
+        min: 0,
+        max: 1,
+        step: 0.01,
+        format: (v) => Number(v).toFixed(2),
+      })
+      .on("change", () => this.appcore.requestRender());
+
     this.addSeparator(page);
 
     const slice = page.addFolder({ title: "Slice View", expanded: true });
