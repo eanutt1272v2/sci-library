@@ -21,46 +21,6 @@ class Analyser {
     this.series = [];
   }
 
-  _logGamma(z) {
-    const coeffs = [
-      676.5203681218851, -1259.1392167224028, 771.32342877765313,
-      -176.61502916214059, 12.507343278686905, -0.13857109526572012,
-      9.9843695780195716e-6, 1.5056327351493116e-7,
-    ];
-
-    if (z < 0.5) {
-      return (
-        Math.log(Math.PI) -
-        Math.log(Math.sin(Math.PI * z)) -
-        this._logGamma(1 - z)
-      );
-    }
-
-    let x = 0.99999999999980993;
-    const tZ = z - 1;
-    for (let i = 0; i < coeffs.length; i++) {
-      x += coeffs[i] / (tZ + i + 1);
-    }
-
-    const t = tZ + coeffs.length - 0.5;
-    return (
-      0.5 * Math.log(2 * Math.PI) + (tZ + 0.5) * Math.log(t) - t + Math.log(x)
-    );
-  }
-
-  _genLaguerre(k, alpha, x) {
-    if (k <= 0) return 1.0;
-    let L2 = 1.0;
-    let L1 = 1.0 + alpha - x;
-    let Lc = L1;
-    for (let i = 2; i <= k; i++) {
-      Lc = ((2 * i - 1 + alpha - x) * L1 - (i - 1 + alpha) * L2) / i;
-      L2 = L1;
-      L1 = Lc;
-    }
-    return Number.isFinite(Lc) ? Lc : 0.0;
-  }
-
   _computeRadialProbabilityMoments(params) {
     const n = Math.max(1, Math.round(Number(params?.n) || 1));
     const l = Math.max(0, Math.min(n - 1, Math.round(Number(params?.l) || 0)));
@@ -75,7 +35,8 @@ class Analyser {
     let logNormR = 1.5 * Math.log((2.0 * Z) / (n * aMuMeters));
     logNormR +=
       0.5 *
-      (this._logGamma(n - l) - (Math.log(2.0 * n) + this._logGamma(n + l + 1)));
+      (QuantumMath.logGamma(n - l) -
+        (Math.log(2.0 * n) + QuantumMath.logGamma(n + l + 1)));
 
     const expectedRadiusAMu = (3 * n * n - l * (l + 1)) / (2 * Z);
     const maxRadiusAMu = Math.max(
@@ -99,7 +60,7 @@ class Analyser {
         Math.exp(logNormR) *
         Math.exp(-rho / 2.0) *
         Math.pow(rho, l) *
-        this._genLaguerre(n - l - 1, 2 * l + 1, rho);
+        QuantumMath.genLaguerre(n - l - 1, 2 * l + 1, rho);
 
       if (!Number.isFinite(radialComponent)) continue;
 
@@ -142,38 +103,6 @@ class Analyser {
     return radialNodes + angularNodes;
   }
 
-  _assocLegendre(l, m, x) {
-    const ll = Math.max(0, Math.round(Number(l) || 0));
-    const mm = Math.max(0, Math.min(ll, Math.round(Number(m) || 0)));
-    const xc = Math.max(-1, Math.min(1, Number(x) || 0));
-
-    if (mm > ll) return 0;
-
-    let pmm = 1.0;
-    if (mm > 0) {
-      const sinTheta = Math.sqrt(Math.max(0, 1 - xc * xc));
-      let fact = 1.0;
-      for (let i = 1; i <= mm; i++) {
-        pmm *= -fact * sinTheta;
-        fact += 2.0;
-      }
-    }
-
-    if (ll === mm) return pmm;
-
-    let pmmp1 = xc * (2 * mm + 1) * pmm;
-    if (ll === mm + 1) return pmmp1;
-
-    let pll = 0;
-    for (let n = mm + 2; n <= ll; n++) {
-      pll = ((2 * n - 1) * xc * pmmp1 - (n + mm - 1) * pmm) / (n - mm);
-      pmm = pmmp1;
-      pmmp1 = pll;
-    }
-
-    return Number.isFinite(pll) ? pll : 0;
-  }
-
   _refineRootBisection(fn, left, right, iterations = 48) {
     let a = left;
     let b = right;
@@ -209,7 +138,7 @@ class Analyser {
     const angularCount = Math.max(0, l - mAbs);
     if (angularCount <= 0) return [];
 
-    const fn = (u) => this._assocLegendre(l, mAbs, u);
+    const fn = (u) => QuantumMath.assocLegendre(l, mAbs, u);
     const roots = [];
     const steps = 2048;
     const minU = -0.999999;
@@ -272,7 +201,7 @@ class Analyser {
     if (radialCount <= 0) return [];
 
     const alpha = 2 * l + 1;
-    const laguerre = (rho) => this._genLaguerre(radialCount, alpha, rho);
+    const laguerre = (rho) => QuantumMath.genLaguerre(radialCount, alpha, rho);
     const roots = [];
     const maxRho = Math.max(64, 8 * n * n);
     const steps = 4096;
@@ -354,17 +283,11 @@ class Analyser {
 
     let sum = 0;
     let peak = 0;
-    let sumSq = 0;
-    let entropyAcc = 0;
 
-    const res =
-      params?.resolution || Math.max(1, Math.round(Math.sqrt(grid.length)));
     for (let i = 0; i < grid.length; i++) {
       const val = grid[i];
       sum += val;
-      sumSq += val * val;
       if (val > peak) peak = val;
-      if (val > 1e-300) entropyAcc += val * Math.log(val);
     }
 
     const mean = sum / grid.length;
@@ -390,7 +313,6 @@ class Analyser {
     }
 
     const nodeEstimate = this._estimateOrbitalNodeCount3D(params);
-
     const radialStandard = this._computeRadialProbabilityMoments(params);
 
     this.statistics.density = mean;
