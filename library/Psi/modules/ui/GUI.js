@@ -184,7 +184,7 @@ class GUI {
 
     this.bindings.nucleusMassLog10 = quantum
       .addBinding(this.massControl, "nucleusMassLog10", {
-        label: this.withHint("log₁₀ Nucleus Mass", "nucleusMass", "G/B"),
+        label: this.withHint("log\u2081\u2080 Nucleus Mass", "nucleusMass", "G/B"),
         min: -30,
         max: -24,
         step: 0.01,
@@ -234,14 +234,6 @@ class GUI {
       })
       .on("change", () => this.appcore.requestRender());
 
-    appearance
-      .addBinding(this.appcore.params, "exposure", {
-        label: this.withHint("Exposure", "exposure", "[/]"),
-        min: 0,
-        max: 2,
-      })
-      .on("change", () => this.appcore.requestRender());
-
     this.addSeparator(page);
 
     const quality = page.addFolder({ title: "Sampling", expanded: true });
@@ -282,7 +274,7 @@ class GUI {
       this.appcore.params,
       "viewRadius",
       {
-        label: this.withHint("View Radius [a₀]", "viewRadius", "I/K"),
+        label: this.withHint("View Radius [a\u2080]", "viewRadius", "I/K"),
         min: 1,
         max: 256,
       },
@@ -309,7 +301,7 @@ class GUI {
       this.appcore.params,
       "sliceOffset",
       {
-        label: this.withHint("Slice Offset [a₀]", "sliceOffset", "Shift+J/L"),
+        label: this.withHint("Slice Offset [a\u2080]", "sliceOffset", "Shift+J/L"),
         min: -1024,
         max: 1024,
       },
@@ -330,7 +322,7 @@ class GUI {
 
     pan
       .addBinding(this.appcore.params.viewCentre, "x", {
-        label: this.withHint("Pan X [a₀]", "panX", "Shift+A/D"),
+        label: this.withHint("Pan X [a\u2080]", "panX", "Shift+A/D"),
         min: -256,
         max: 256,
         step: 0.1,
@@ -339,7 +331,7 @@ class GUI {
 
     pan
       .addBinding(this.appcore.params.viewCentre, "y", {
-        label: this.withHint("Pan Y [a₀]", "panY", "Shift+W/S"),
+        label: this.withHint("Pan Y [a\u2080]", "panY", "Shift+W/S"),
         min: -256,
         max: 256,
         step: 0.1,
@@ -348,7 +340,7 @@ class GUI {
 
     pan
       .addBinding(this.appcore.params.viewCentre, "z", {
-        label: this.withHint("Pan Z [a₀]", "panZ", "Shift+Q/E"),
+        label: this.withHint("Pan Z [a\u2080]", "panZ", "Shift+Q/E"),
         min: -256,
         max: 256,
         step: 0.1,
@@ -397,26 +389,26 @@ class GUI {
 
     distribution.addBinding(statistics, "density", {
       readonly: true,
-      label: "Density [m⁻³]",
+      label: "Density [m\u207b\u00b3]",
       format: formatSigned,
       interval: 60,
     });
 
     distribution.addBinding(statistics, "peakDensity", {
       readonly: true,
-      label: "Peak Density [m⁻³]",
+      label: "Peak Density [m\u207b\u00b3]",
       format: formatSigned,
     });
 
     distribution.addBinding(statistics, "mean", {
       readonly: true,
-      label: "Mean Density [m⁻³]",
+      label: "Mean Density [m\u207b\u00b3]",
       format: formatSigned,
     });
 
     distribution.addBinding(statistics, "stdDev", {
       readonly: true,
-      label: "Density Std Dev [m⁻³]",
+      label: "Density Std Dev [m\u207b\u00b3]",
       format: formatSigned,
     });
 
@@ -438,13 +430,13 @@ class GUI {
 
     radial.addBinding(statistics, "radialPeak", {
       readonly: true,
-      label: "Radial Peak [a₀]",
+      label: "Radial Peak [a\u2080]",
       format: formatSigned,
     });
 
     radial.addBinding(statistics, "radialSpread", {
       readonly: true,
-      label: "Radial Spread [a₀]",
+      label: "Radial Spread [a\u2080]",
       format: formatSigned,
     });
 
@@ -522,8 +514,8 @@ class GUI {
 
     this.recordButton = capture.addButton({
       title: media.isRecording
-        ? this.withHint("⏹ Stop Recording", "record", "Ctrl+R")
-        : this.withHint("⏺ Start Recording", "record", "Ctrl+R"),
+        ? this.withHint("\u23f9 Stop Recording", "record", "Ctrl+R")
+        : this.withHint("\u23fa Start Recording", "record", "Ctrl+R"),
     });
 
     this.recordButton.on("click", () => {
@@ -553,8 +545,8 @@ class GUI {
   syncMediaControls() {
     if (!this.recordButton) return;
     this.recordButton.title = this.appcore.media.isRecording
-      ? this.withHint("⏹ Stop Recording", "record", "Ctrl+R")
-      : this.withHint("⏺ Start Recording", "record", "Ctrl+R");
+      ? this.withHint("\u23f9 Stop Recording", "record", "Ctrl+R")
+      : this.withHint("\u23fa Start Recording", "record", "Ctrl+R");
   }
 
   enforceConstraints() {
