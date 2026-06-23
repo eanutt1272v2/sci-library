@@ -9,6 +9,12 @@ if (typeof importScripts === "function") {
       _error,
     );
   }
+
+  try {
+    importScripts("../../../_shared/utils/QuantumMath.js");
+  } catch (_error) {
+    console.error("Failed to load QuantumMath.js.", _error);
+  }
 }
 
 const _workerSanitisers =
@@ -57,7 +63,7 @@ function _reportWorkerError(stage, error) {
   try {
     console.error(`[PsiWorker] ${payload.stage}: ${payload.message}`);
   } catch {
-    // Ignore logging failures because obviously logging shouldn't cause more errors. If this fails, there's not much we can do about it. It's up to the bloody user to fix their console if it can't handle error messages.
+    // Ignore logging failures.
   }
 }
 
@@ -84,6 +90,12 @@ function clamp(value, min, max) {
 
 const toFiniteNumber = _workerSanitisers.toFiniteNumber;
 const toInteger = _workerSanitisers.toInteger;
+
+const { logGamma, genLaguerre, assocLegendre } = globalThis.QuantumMath || {};
+
+if (!logGamma || !genLaguerre || !assocLegendre) {
+  console.error("[PsiWorker] QuantumMath failed to load. Wavefunction evaluation will not work.");
+}
 
 function sanitiseRenderPayload(data) {
   const n = toInteger(data.n, 1, 1, 12);
@@ -152,31 +164,6 @@ function sanitiseRenderPayload(data) {
   };
 }
 
-function logGamma(z) {
-  const coeffs = [
-    676.5203681218851, -1259.1392167224028, 771.32342877765313,
-    -176.61502916214059, 12.507343278686905, -0.13857109526572012,
-    9.9843695780195716e-6, 1.5056327351493116e-7,
-  ];
-
-  if (z < 0.5) {
-    return (
-      Math.log(Math.PI) - Math.log(Math.sin(Math.PI * z)) - logGamma(1 - z)
-    );
-  }
-
-  let x = 0.99999999999980993;
-  const tZ = z - 1;
-  for (let i = 0; i < coeffs.length; i++) {
-    x += coeffs[i] / (tZ + i + 1);
-  }
-
-  const t = tZ + coeffs.length - 0.5;
-  return (
-    0.5 * Math.log(2 * Math.PI) + (tZ + 0.5) * Math.log(t) - t + Math.log(x)
-  );
-}
-
 function reducedElectronNucleusMass(Z, nucleusMassKg) {
   const M = nucleusMassKg || (Z === 1 ? CONSTS.protonMassKg : 0);
   if (!M || M <= 0) {
@@ -190,43 +177,13 @@ function reducedBohrRadius(muKg) {
   return CONSTS.bohrRadiusM * (CONSTS.electronMassKg / muKg);
 }
 
-function genLaguerre(k, alpha, x) {
-  if (k <= 0) return 1.0;
-  let L2 = 1.0;
-  let L1 = 1.0 + alpha - x;
-  let Lc = L1;
-  for (let i = 2; i <= k; i++) {
-    Lc = ((2 * i - 1 + alpha - x) * L1 - (i - 1 + alpha) * L2) / i;
-    L2 = L1;
-    L1 = Lc;
-  }
-  return isFinite(Lc) ? Lc : 0.0;
-}
-
-function assocLegendre(l, absM, x) {
-  let pmm = 1.0;
-  if (absM > 0) {
-    const somx2 = Math.sqrt(Math.max(0, (1.0 - x) * (1.0 + x)));
-    let fact = 1.0;
-    for (let i = 1; i <= absM; i++) {
-      pmm *= -fact * somx2;
-      fact += 2.0;
-    }
-  }
-  if (l === absM) return pmm;
-  let pmmp1 = x * (2.0 * absM + 1.0) * pmm;
-  if (l === absM + 1) return pmmp1;
-  let pll = 0;
-  for (let ll = absM + 2; ll <= l; ll++) {
-    pll =
-      (x * (2.0 * ll - 1.0) * pmmp1 - (ll + absM - 1.0) * pmm) / (ll - absM);
-    pmm = pmmp1;
-    pmmp1 = pll;
-  }
-  return pmmp1;
-}
-
-let _cache = { key: "", logNormR: 0.0, l: 0, absM: 0, aMu: CONSTS.bohrRadiusM };
+let _cache = {
+  key: "",
+  logNormR: 0.0,
+  l: 0,
+  absM: 0,
+  aMu: CONSTS.bohrRadiusM,
+};
 
 function _updateCache(n, l, m, Z, useReducedMass, nucleusMassKg) {
   const key = `${n}|${l}|${m}|${Z}|${useReducedMass ? 1 : 0}|${Number(nucleusMassKg || 0).toPrecision(8)}`;
@@ -280,15 +237,8 @@ function getProbabilityDensity(
     0.5 * (logGamma(l - absM + 1) - logGamma(l + absM + 1));
   const normY = Math.exp(logNormY);
 
-  const rePos = normY * p_lm * Math.cos(absM * phi);
-  const imPos = normY * p_lm * Math.sin(absM * phi);
-
-  let yRe = rePos;
-  let yIm = m >= 0 ? imPos : -imPos;
-  if (m < 0 && absM % 2 === 1) {
-    yRe = -yRe;
-    yIm = -yIm;
-  }
+  const yRe = normY * p_lm * Math.cos(absM * phi);
+  const yIm = normY * p_lm * Math.sin(absM * phi);
 
   const psiRe = R_nl * yRe;
   const psiIm = R_nl * yIm;
@@ -435,9 +385,7 @@ function computeDensityStatistics(grid, resolution, viewRadius, orbitalParams) {
   }
 
   const stdDev = Math.sqrt(variance / grid.length);
-
   const nodeEstimate = estimateOrbitalNodeCount3D(orbitalParams);
-
   const radialStandard = computeRadialProbabilityMoments(
     orbitalParams?.n,
     orbitalParams?.l,
