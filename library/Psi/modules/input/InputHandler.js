@@ -114,18 +114,6 @@ class InputHandler {
       }
     }
 
-    const exposureDown = this._isHintHeld("exposure", 0);
-    const exposureUp = this._isHintHeld("exposure", 1);
-
-    if (exposureDown || exposureUp) {
-      params.exposure = constrain(
-        params.exposure + (exposureUp ? 0.01 : -0.01),
-        0,
-        2,
-      );
-      needsRender = true;
-    }
-
     const isPlus = this._isHintHeld("resolution", 0);
     const isMinus = this._isHintHeld("resolution", 1);
 
