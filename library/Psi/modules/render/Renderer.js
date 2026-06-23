@@ -1,4 +1,13 @@
 class Renderer {
+  // Compression parameter for the log tone-map.  alpha = 200 gives a
+  // visually balanced curve: the mapping is nearly linear for the
+  // brightest 30 % of the range (preserving peak structure) while
+  // strongly lifting the low-density lobes that a power-law curve
+  // would bury in noise.  It is intentionally not user-adjustable;
+  // the normalisation is automatic and fully determined by the
+  // canonical analysis-grid peak.
+  static LOG_ALPHA = 200;
+
   constructor(appcore) {
     this.appcore = appcore;
     this.buffer = null;
@@ -43,6 +52,21 @@ class Renderer {
     if (v === 0) return "0";
     const [mantissa, exponent] = Number(v).toExponential(digits).split("e");
     return `${mantissa}e^${Number(exponent)}`;
+  }
+
+  // Stable log tone-map.  Maps a linear normalised value t in [0,1]
+  // to a perceptually compressed display value in [0,1] via
+  //   u(t) = log(1 + alpha * t) / log(1 + alpha)
+  // Inverse (for legend tick positions):
+  //   t(u) = (exp(u * log(1 + alpha)) - 1) / alpha
+  static _logMap(t) {
+    const a = Renderer.LOG_ALPHA;
+    return Math.log(1 + a * t) / Math.log(1 + a);
+  }
+
+  static _logMapInverse(u) {
+    const a = Renderer.LOG_ALPHA;
+    return (Math.exp(u * Math.log(1 + a)) - 1) / a;
   }
 
   getAxisSamples(resolution, viewRadius) {
@@ -91,7 +115,7 @@ class Renderer {
   }
 
   renderFromGrid(gridBuffer, peak, resolutionHint) {
-    const { colourMap, exposure } = this.appcore.params;
+    const { colourMap } = this.appcore.params;
     this.grid = new Float32Array(gridBuffer);
     let res = Number(resolutionHint);
     if (!Number.isFinite(res) || res <= 0) {
@@ -108,14 +132,13 @@ class Renderer {
       }
       this.buffer = this._createReadbackBuffer(res, res);
     }
-    this.renderToBuffer(this.grid, peak, res, colourMap, exposure);
+    this.renderToBuffer(this.grid, peak, res, colourMap);
   }
 
-  renderToBuffer(grid, peak, res, colourMap, exposure) {
+  renderToBuffer(grid, peak, res, colourMap) {
     const { buffer } = this;
     this.updateLUT(colourMap || "rocket");
 
-    const gamma = 1.0 / (1.0 + exposure);
     const peakRef =
       (typeof this.appcore.getNormalisationPeak === "function" &&
         this.appcore.getNormalisationPeak()) ||
@@ -125,12 +148,12 @@ class Renderer {
     buffer.loadPixels();
 
     for (let i = 0; i < res * res; i++) {
-      let norm = grid[i] / peakRef;
-      let val = Math.pow(constrain(norm, 0, 1), gamma);
-      const lutIndex = Math.min(255, Math.max(0, Math.round(val * 255))) * 3;
+      const t = constrain(grid[i] / peakRef, 0, 1);
+      const u = Renderer._logMap(t);
+      const lutIndex = Math.min(255, Math.max(0, Math.round(u * 255))) * 3;
 
       const idx = i * 4;
-      buffer.pixels[idx] = this.lut[lutIndex];
+      buffer.pixels[idx]     = this.lut[lutIndex];
       buffer.pixels[idx + 1] = this.lut[lutIndex + 1];
       buffer.pixels[idx + 2] = this.lut[lutIndex + 2];
       buffer.pixels[idx + 3] = 255;
@@ -193,7 +216,6 @@ class Renderer {
       viewCentre,
       resolution,
       slicePlane,
-      exposure,
       colourMap,
       pixelSmoothing,
     } = this.appcore.params;
@@ -207,20 +229,19 @@ class Renderer {
       `FPS=${statistics.fps.toFixed(1)} [Hz]`,
       `Resolution=${resolution} [px]`,
       `Plane: ${slicePlane.toUpperCase()}`,
-      `Slice ${fixedLabel}=${sliceOffset.toFixed(2)} [a₀]`,
-      `View Radius=${viewRadius.toFixed(2)} [a₀]`,
-      `Pan ${axis1Label}=${viewCentre[axis1].toFixed(2)} [a₀]`,
-      `Pan ${axis2Label}=${viewCentre[axis2].toFixed(2)} [a₀]`,
-      `Mean Density=${this._fmtSci(statistics.mean, 3)} [m⁻³]`,
-      `Density Std Dev=${this._fmtSci(statistics.stdDev, 3)} [m⁻³]`,
-      `Density Peak=${this._fmtSci(statistics.peakDensity, 3)} [m⁻³]`,
+      `Slice ${fixedLabel}=${sliceOffset.toFixed(2)} [a\u2080]`,
+      `View Radius=${viewRadius.toFixed(2)} [a\u2080]`,
+      `Pan ${axis1Label}=${viewCentre[axis1].toFixed(2)} [a\u2080]`,
+      `Pan ${axis2Label}=${viewCentre[axis2].toFixed(2)} [a\u2080]`,
+      `Mean Density=${this._fmtSci(statistics.mean, 3)} [m\u207b\u00b3]`,
+      `Density Std Dev=${this._fmtSci(statistics.stdDev, 3)} [m\u207b\u00b3]`,
+      `Density Peak=${this._fmtSci(statistics.peakDensity, 3)} [m\u207b\u00b3]`,
       `Entropy=${this._fmtSci(statistics.entropy, 3)}`,
       `Concentration=${this._fmtSci(statistics.concentration, 3)}`,
-      `Radial Peak=${statistics.radialPeak.toFixed(3)} [a₀]`,
-      `Radial Spread=${statistics.radialSpread.toFixed(3)} [a₀]`,
+      `Radial Peak=${statistics.radialPeak.toFixed(3)} [a\u2080]`,
+      `Radial Spread=${statistics.radialSpread.toFixed(3)} [a\u2080]`,
       `Node Estimate=${statistics.nodeEstimate.toFixed(0)}`,
       `Colour Map: ${colourMap} (palette id)`,
-      `Exposure=${exposure.toFixed(2)} [index]`,
       `Pixel Smoothing: ${pixelSmoothing ? "true" : "false"}`,
     ];
 
@@ -453,17 +474,17 @@ class Renderer {
 
   getSuperscript(num) {
     const map = {
-      0: "⁰",
-      1: "¹",
-      2: "²",
-      3: "³",
-      4: "⁴",
-      5: "⁵",
-      6: "⁶",
-      7: "⁷",
-      8: "⁸",
-      9: "⁹",
-      "-": "⁻",
+      0: "\u2070",
+      1: "\u00b9",
+      2: "\u00b2",
+      3: "\u00b3",
+      4: "\u2074",
+      5: "\u2075",
+      6: "\u2076",
+      7: "\u2077",
+      8: "\u2078",
+      9: "\u2079",
+      "-": "\u207b",
     };
     return String(num)
       .split("")
@@ -473,7 +494,7 @@ class Renderer {
 
   renderLegend() {
     push();
-    const { colourMap, exposure } = this.appcore.params;
+    const { colourMap } = this.appcore.params;
     this.updateLUT(colourMap || "rocket");
 
     const x = width - 20;
@@ -482,14 +503,20 @@ class Renderer {
     const w = 15;
     const h = y2 - y1;
 
+    // Gradient: top = peak (u=1), bottom = zero (u=0), mapped through log curve.
     const grad = drawingContext.createLinearGradient(0, y1, 0, y2);
     const stops = 32;
     for (let i = 0; i <= stops; i++) {
-      const t = i / stops;
-      const idx = (((1 - t) * 255) | 0) * 3;
+      // i/stops goes from 0 (top=peak) to 1 (bottom=zero) in screen space.
+      // The linear density fraction for screen position s is:
+      //   t_linear = Renderer._logMapInverse(1 - s)
+      // and the LUT index is _logMap(t_linear) * 255 = (1 - s) * 255.
+      const s = i / stops;
+      const idx = (Math.round((1 - s) * 255)) * 3;
+      const safeIdx = Math.min(255 * 3, Math.max(0, idx));
       grad.addColorStop(
-        t,
-        `rgb(${this.lut[idx]}, ${this.lut[idx + 1]}, ${this.lut[idx + 2]})`,
+        s,
+        `rgb(${this.lut[safeIdx]}, ${this.lut[safeIdx + 1]}, ${this.lut[safeIdx + 2]})`,
       );
     }
 
@@ -502,12 +529,13 @@ class Renderer {
     strokeWeight(1.5);
     rect(x - w, y1, w, h);
 
+    // Build tick labels in linear density space, then convert each
+    // label value to a screen y-position via the log map.
     const maxV = Math.max(1e-30, Number(this.lastLegendPeak) || 0);
     const k = Math.floor(Math.log10(maxV));
     const scale = Math.pow(10, k);
     const scaledMax = maxV / scale;
 
-    const gamma = 1.0 / (1.0 + exposure);
     const rawStep = scaledMax / 7;
     const stepMag = Math.pow(
       10,
@@ -521,13 +549,15 @@ class Renderer {
     else if (stepNorm > 5) niceNorm = 10;
     const step = niceNorm * stepMag;
 
+    // For each linear-space tick value v, the screen y position is:
+    //   yScreen = y1 + (1 - _logMap(v / scaledMax)) * h
     const labels = [{ val: scaledMax, y: y1 }];
     const start = Math.floor(scaledMax / step) * step;
     for (let v = start; v >= -1e-12; v -= step) {
       if (scaledMax - v < 1e-9) continue;
       const tv = Math.max(0, v);
       const tLinear = tv / scaledMax;
-      const tMapped = Math.pow(constrain(tLinear, 0, 1), gamma);
+      const tMapped = Renderer._logMap(constrain(tLinear, 0, 1));
       labels.push({ val: tv, y: y1 + (1 - tMapped) * h });
     }
 
@@ -551,14 +581,14 @@ class Renderer {
     textAlign(CENTER, BOTTOM);
     textSize(14);
     let kSuper = this.getSuperscript(k);
-    text(`×10${kSuper}`, x - w * 0.6, y1 - 6);
+    text(`\u00d710${kSuper}`, x - w * 0.6, y1 - 6);
 
     push();
     translate(x + w * 0.5, y1 + h * 0.5);
     rotate(-HALF_PI);
     textAlign(CENTER, CENTER);
     textSize(12);
-    text("Probability density |ψ|² [m⁻³]", 0, 0);
+    text("Probability density |\u03c8|\u00b2 [m\u207b\u00b3]", 0, 0);
     pop();
     pop();
   }
