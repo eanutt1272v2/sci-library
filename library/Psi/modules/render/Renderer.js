@@ -1,28 +1,16 @@
 class Renderer {
-  // Compression parameter for the log tone-map.  alpha = 200 gives a
-  // visually balanced curve: the mapping is nearly linear for the
-  // brightest 30 % of the range (preserving peak structure) while
-  // strongly lifting the low-density lobes that a power-law curve
-  // would bury in noise.  It is intentionally not user-adjustable;
-  // the normalisation is automatic and fully determined by the
-  // canonical analysis-grid peak.
-  static LOG_ALPHA = 200;
+  // Default compression parameter for the log tone-map if params.logAlpha is
+  // absent.  alpha = 200 gives a visually balanced curve: nearly linear for
+  // the brightest 30 % of the range while strongly lifting the low-density
+  // lobes that a power-law curve would bury in noise.
+  static DEFAULT_LOG_ALPHA = 200;
 
-  // Nodal overlay colours, chosen to be mutually discernible against
-  // the rocket colourmap and visually neutral enough to read well on
-  // both light and dark backgrounds.
-  //
-  // Radial nodes (concentric circles) — warm goldenrod amber.
-  //   Sits clearly above the cool purple/blue shadows of rocket without
-  //   clashing with the hot-white peak region.
-  // Angular nodes (cones / meridional lines) — slate cyan-teal.
-  //   Provides strong hue separation from amber while remaining quiet
-  //   enough not to dominate the density structure.
-  //
-  // Both are defined at full opacity here; the per-frame alpha from
-  // params.nodeOverlayAlpha is applied at render time.
-  static NODE_COLOUR_RADIAL  = [220, 170,  50]; // goldenrod amber  (RGB)
-  static NODE_COLOUR_ANGULAR = [ 72, 202, 195]; // slate cyan-teal  (RGB)
+  // Nodal overlay colours: matplotlib default red and blue.
+  // Radial nodes  (concentric circles) — matplotlib C3 red.
+  // Angular nodes (cones / meridional) — matplotlib C0 blue.
+  // Both at full 255 alpha; node overlay always renders at 1.0 opacity.
+  static NODE_COLOUR_RADIAL  = [214,  39,  40]; // matplotlib red  (RGB)
+  static NODE_COLOUR_ANGULAR = [ 31, 119, 180]; // matplotlib blue (RGB)
 
   constructor(appcore) {
     this.appcore = appcore;
@@ -70,18 +58,25 @@ class Renderer {
     return `${mantissa}e^${Number(exponent)}`;
   }
 
+  // Resolve the log-alpha compression parameter.
+  // Uses params.logAlpha when present and valid; falls back to DEFAULT_LOG_ALPHA.
+  _getLogAlpha() {
+    const a = Number(this.appcore.params.logAlpha);
+    return Number.isFinite(a) && a > 0 ? a : Renderer.DEFAULT_LOG_ALPHA;
+  }
+
   // Stable log tone-map.  Maps a linear normalised value t in [0,1]
   // to a perceptually compressed display value in [0,1] via
   //   u(t) = log(1 + alpha * t) / log(1 + alpha)
   // Inverse (for legend tick positions):
   //   t(u) = (exp(u * log(1 + alpha)) - 1) / alpha
-  static _logMap(t) {
-    const a = Renderer.LOG_ALPHA;
+  _logMap(t) {
+    const a = this._getLogAlpha();
     return Math.log(1 + a * t) / Math.log(1 + a);
   }
 
-  static _logMapInverse(u) {
-    const a = Renderer.LOG_ALPHA;
+  _logMapInverse(u) {
+    const a = this._getLogAlpha();
     return (Math.exp(u * Math.log(1 + a)) - 1) / a;
   }
 
@@ -165,7 +160,7 @@ class Renderer {
 
     for (let i = 0; i < res * res; i++) {
       const t = constrain(grid[i] / peakRef, 0, 1);
-      const u = Renderer._logMap(t);
+      const u = this._logMap(t);
       const lutIndex = Math.min(255, Math.max(0, Math.round(u * 255))) * 3;
 
       const idx = i * 4;
@@ -234,6 +229,7 @@ class Renderer {
       slicePlane,
       colourMap,
       pixelSmoothing,
+      logAlpha,
     } = this.appcore.params;
     const statistics = this.appcore.statistics;
     const { axis1, axis2, fixedLabel, axis1Label, axis2Label } =
@@ -259,6 +255,7 @@ class Renderer {
       `Node Estimate=${statistics.nodeEstimate.toFixed(0)}`,
       `Colour Map: ${colourMap} (palette id)`,
       `Pixel Smoothing: ${pixelSmoothing ? "true" : "false"}`,
+      `Log Alpha: ${Number(logAlpha ?? Renderer.DEFAULT_LOG_ALPHA).toFixed(1)}`,
     ];
 
     push();
@@ -286,12 +283,9 @@ class Renderer {
     };
   }
 
-  _renderNodeTypeKey(radialCount, angularCount, overlayAlpha) {
+  _renderNodeTypeKey(radialCount, angularCount) {
     const panelX = 20;
     const panelY = height - 78;
-    // Apply the same user-controlled alpha to the legend swatches so they
-    // always match the on-canvas lines.
-    const a = Math.round(constrain(overlayAlpha, 0, 1) * 255);
     const [rR, rG, rB] = Renderer.NODE_COLOUR_RADIAL;
     const [aR, aG, aB] = Renderer.NODE_COLOUR_ANGULAR;
 
@@ -304,13 +298,13 @@ class Renderer {
 
     strokeWeight(2);
 
-    stroke(rR, rG, rB, a);
+    stroke(rR, rG, rB, 255);
     line(panelX + 12, panelY + 30, panelX + 32, panelY + 30);
     noStroke();
     fill(255);
     text(`Radial: ${radialCount}`, panelX + 40, panelY + 23);
 
-    stroke(aR, aG, aB, a);
+    stroke(aR, aG, aB, 255);
     line(panelX + 12, panelY + 52, panelX + 32, panelY + 52);
     noStroke();
     fill(255);
@@ -325,14 +319,6 @@ class Renderer {
     if (!analyser || typeof analyser.computeNodeOverlayData !== "function") {
       return;
     }
-
-    // Resolve the user-controlled opacity and derive the 0-255 alpha byte.
-    const overlayAlpha = constrain(
-      Number(params.nodeOverlayAlpha ?? 0.9),
-      0,
-      1,
-    );
-    const alphaByte = Math.round(overlayAlpha * 255);
 
     const { axis1, axis2, fixedAxis } = this.appcore.getPlaneAxes();
     const viewRadius = Math.max(1e-6, Number(params.viewRadius) || 1);
@@ -350,11 +336,11 @@ class Renderer {
     const angularNodeThetas = overlayData.angularNodeThetas || [];
     const angularNodePhis = overlayData.angularNodePhis || [];
 
-    // Build p5 colour arrays with the live alpha byte.
+    // Node overlay always renders at full (1.0) opacity.
     const [rR, rG, rB] = Renderer.NODE_COLOUR_RADIAL;
     const [aR, aG, aB] = Renderer.NODE_COLOUR_ANGULAR;
-    const radialColour  = [rR, rG, rB, alphaByte];
-    const angularColour = [aR, aG, aB, alphaByte];
+    const radialColour  = [rR, rG, rB, 255];
+    const angularColour = [aR, aG, aB, 255];
 
     const pixelScale = Math.min(width, height) / (2 * viewRadius);
 
@@ -500,7 +486,6 @@ class Renderer {
     this._renderNodeTypeKey(
       radialNodeRadii.length,
       angularNodeThetas.length + angularNodePhis.length,
-      overlayAlpha,
     );
   }
 
@@ -541,7 +526,7 @@ class Renderer {
     for (let i = 0; i <= stops; i++) {
       // i/stops goes from 0 (top=peak) to 1 (bottom=zero) in screen space.
       // The linear density fraction for screen position s is:
-      //   t_linear = Renderer._logMapInverse(1 - s)
+      //   t_linear = _logMapInverse(1 - s)
       // and the LUT index is _logMap(t_linear) * 255 = (1 - s) * 255.
       const s = i / stops;
       const idx = (Math.round((1 - s) * 255)) * 3;
@@ -589,7 +574,7 @@ class Renderer {
       if (scaledMax - v < 1e-9) continue;
       const tv = Math.max(0, v);
       const tLinear = tv / scaledMax;
-      const tMapped = Renderer._logMap(constrain(tLinear, 0, 1));
+      const tMapped = this._logMap(constrain(tLinear, 0, 1));
       labels.push({ val: tv, y: y1 + (1 - tMapped) * h });
     }
 
