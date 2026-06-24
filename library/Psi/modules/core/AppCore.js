@@ -11,92 +11,96 @@ class AppCore {
   constructor(assets) {
     const { metadata, colourMaps, font } = assets;
 
-    this.metadata = metadata;
+    this.metadata   = metadata;
     this._diagnosticsLogger =
       typeof AppDiagnostics !== "undefined" &&
       typeof AppDiagnostics.resolveLogger === "function"
         ? AppDiagnostics.resolveLogger("Psi")
         : { info() {}, warn() {}, error() {}, debug() {} };
-    this.colourMaps = colourMaps || {};
+    this.colourMaps    = colourMaps || {};
     this.colourMapKeys = Object.keys(this.colourMaps);
 
     if (this.colourMapKeys.length === 0) {
-      this.colourMaps = { greyscale: ColourMapLUT.GREYSCALE };
+      this.colourMaps    = { greyscale: ColourMapLUT.GREYSCALE };
       this.colourMapKeys = ["greyscale"];
     }
 
     this.params = {
       orbitalNotation: "",
-      n: 4,
-      l: 1,
-      m: 0,
-      nuclearCharge: 1,
+      n:              4,
+      l:              1,
+      m:              0,
+      nuclearCharge:  1,
       useReducedMass: true,
-      nucleusMassKg: 1.67262192369e-27,
+      nucleusMassKg:  1.67262192369e-27,
 
       colourMap: this.colourMapKeys.includes("rocket")
         ? "rocket"
         : this.colourMapKeys[0],
 
       // Log-gamma tone-map compression parameter alpha.
-      // The normalised display value u = log(1 + alpha*t) / log(1 + alpha).
+      // Normalised display value: u = log(1 + alpha*t) / log(1 + alpha).
       // Larger alpha = more compression of bright regions, lifting dim lobes.
       logAlpha: 200,
 
-      resolution: 256,
-      pixelSmoothing: true,
-      renderOverlay: true,
+      resolution:       256,
+      pixelSmoothing:   true,
+      renderOverlay:    true,
       renderNodeOverlay: false,
-      renderLegend: true,
-      renderKeymapRef: false,
+      renderLegend:     true,
+      renderKeymapRef:  false,
 
-      viewRadius: 45,
-      slicePlane: "xz",
+      viewRadius:  45,
+      slicePlane:  "xz",
       sliceOffset: 0,
-      viewCentre: { x: 0, y: 0, z: 0 },
+      viewCentre:  { x: 0, y: 0, z: 0 },
 
-      imageFormat: "png",
-      recordingFPS: 60,
-      videoBitrateMbps: 8,
+      imageFormat:       "png",
+      recordingFPS:      60,
+      videoBitrateMbps:  8,
     };
 
     this.statistics = {
-      fps: 0,
-      density: 0,
-      peakDensity: 0,
-      mean: 0,
-      stdDev: 0,
-      entropy: 0,
+      fps:           0,
+      density:       0,
+      peakDensity:   0,
+      mean:          0,
+      stdDev:        0,
+      entropy:       0,
       concentration: 0,
-      radialPeak: 0,
-      radialSpread: 0,
-      nodeEstimate: 0,
+      radialPeak:    0,
+      radialSpread:  0,
+      nodeEstimate:  0,
     };
 
     this.font = font;
 
-    this._pendingActions = [];
-    this._analysisConfig = { resolution: 384 };
-    this._analysisSignature = "";
-    this._normalisationPeak = 1e-30;
+    this._pendingActions              = [];
+    this._analysisConfig              = { resolution: 384 };
+    this._analysisSignature           = "";
+    this._normalisationPeak           = 1e-30;
     this._lastStableNormalisationPeak = 1e-30;
-    this.aMuMeters = 5.29177210903e-11;
+    this.aMuMeters                    = 5.29177210903e-11;
 
     this.analyser = new Analyser(this.statistics);
     this.renderer = new Renderer(this);
-    this.media = new Media(this);
-    this.gui = new GUI(this);
-    this.input = new InputHandler(this);
+    this.media    = new Media(this);
+    this.gui      = new GUI(this);
+    this.input    = new InputHandler(this);
 
-    this._worker = null;
-    this._workerBusy = false;
-    this._renderPending = false;
-    this._renderRequestId = 0;
+    this._worker            = null;
+    this._workerBusy        = false;
+    this._renderPending     = false;
+    this._renderRequestId   = 0;
     this._gridRecycleBuffer = null;
     this._initWorker();
 
     this.requestRender();
   }
+
+  // ---------------------------------------------------------------------------
+  // p5 lifecycle hooks
+  // ---------------------------------------------------------------------------
 
   update() {
     this.input.handleContinuousInput();
@@ -110,6 +114,10 @@ class AppCore {
       this._runNextAction();
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Quantum state helpers
+  // ---------------------------------------------------------------------------
 
   updateQuantumNumbers(type, delta) {
     if (type === "n") {
@@ -125,6 +133,10 @@ class AppCore {
 
     this.gui.enforceConstraints();
   }
+
+  // ---------------------------------------------------------------------------
+  // View / display toggles
+  // ---------------------------------------------------------------------------
 
   changePlane(plane) {
     if (["xy", "xz", "yz"].includes(plane)) {
@@ -165,6 +177,10 @@ class AppCore {
   toggleKeymapRef() {
     this.params.renderKeymapRef = !this.params.renderKeymapRef;
   }
+
+  // ---------------------------------------------------------------------------
+  // View adjustments
+  // ---------------------------------------------------------------------------
 
   resetViewRadius() {
     this.params.viewRadius = 45;
@@ -219,9 +235,17 @@ class AppCore {
     this.requestRender();
   }
 
+  // ---------------------------------------------------------------------------
+  // Media / export
+  // ---------------------------------------------------------------------------
+
   exportImage() {
     this.media.exportImage();
   }
+
+  // ---------------------------------------------------------------------------
+  // Canvas / input event proxies
+  // ---------------------------------------------------------------------------
 
   resize() {
     const canvasSize = min(windowWidth, windowHeight);
@@ -261,47 +285,41 @@ class AppCore {
     return true;
   }
 
+  // ---------------------------------------------------------------------------
+  // Geometry helpers
+  // ---------------------------------------------------------------------------
+
   getPlaneAxes() {
     switch (this.params.slicePlane) {
       case "xy":
         return {
-          axis1: "x",
-          axis2: "y",
-          fixedAxis: "z",
-          axis1Label: "X",
-          axis2Label: "Y",
-          fixedLabel: "Z",
+          axis1: "x", axis2: "y", fixedAxis: "z",
+          axis1Label: "X", axis2Label: "Y", fixedLabel: "Z",
         };
       case "yz":
         return {
-          axis1: "y",
-          axis2: "z",
-          fixedAxis: "x",
-          axis1Label: "Y",
-          axis2Label: "Z",
-          fixedLabel: "X",
+          axis1: "y", axis2: "z", fixedAxis: "x",
+          axis1Label: "Y", axis2Label: "Z", fixedLabel: "X",
         };
       case "xz":
       default:
         return {
-          axis1: "x",
-          axis2: "z",
-          fixedAxis: "y",
-          axis1Label: "X",
-          axis2Label: "Z",
-          fixedLabel: "Y",
+          axis1: "x", axis2: "z", fixedAxis: "y",
+          axis1Label: "X", axis2Label: "Z", fixedLabel: "Y",
         };
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Render pipeline
+  // ---------------------------------------------------------------------------
 
   requestRender() {
     this._queueAction("render", () => this._requestRenderNow());
   }
 
   _requestRenderNow() {
-    if (!this._worker) {
-      return;
-    }
+    if (!this._worker) return;
 
     if (this._workerBusy) {
       this._renderPending = true;
@@ -311,25 +329,20 @@ class AppCore {
   }
 
   _getCanonicalViewRadius() {
-    const n = Math.max(1, Number(this.params.n) || 1);
-    const l = Math.max(0, Number(this.params.l) || 0);
-    const Z = Math.max(1, Number(this.params.nuclearCharge) || 1);
-
-    const lHalf = l + 0.5;
-    const ratio = lHalf / n;
+    const n    = Math.max(1, Number(this.params.n) || 1);
+    const l    = Math.max(0, Number(this.params.l) || 0);
+    const Z    = Math.max(1, Number(this.params.nuclearCharge) || 1);
+    const lHalf  = l + 0.5;
+    const ratio  = lHalf / n;
     const outerRadius = (n * n / Z) * (1 + Math.sqrt(Math.max(0, 1 - ratio * ratio)));
-    const padded = outerRadius * 1.15;
-    return Math.max(8, Math.min(512, padded));
+    return Math.max(8, Math.min(512, outerRadius * 1.15));
   }
 
   _getAnalysisSignature() {
     const { n, l, m, slicePlane, sliceOffset } = this.params;
-    const nuclearCharge = Math.max(
-      1,
-      Math.round(Number(this.params.nuclearCharge) || 1),
-    );
+    const nuclearCharge  = Math.max(1, Math.round(Number(this.params.nuclearCharge) || 1));
     const useReducedMass = this.params.useReducedMass !== false;
-    const nucleusMassKg = Number(this.params.nucleusMassKg) || 0;
+    const nucleusMassKg  = Number(this.params.nucleusMassKg) || 0;
     return [
       n,
       l,
@@ -341,6 +354,10 @@ class AppCore {
       Number(nucleusMassKg || 0).toPrecision(8),
     ].join("|");
   }
+
+  // ---------------------------------------------------------------------------
+  // Param sanitisation
+  // ---------------------------------------------------------------------------
 
   _clampNumber(value, min, max, fallback = min) {
     const numeric = Number(value);
@@ -387,13 +404,13 @@ class AppCore {
     if (!this.colourMapKeys.includes(params.colourMap)) {
       params.colourMap = this.colourMapKeys[0];
     }
-    params.logAlpha = this._clampNumber(params.logAlpha, 1, 2000, 200);
-    params.resolution = this._clampInteger(params.resolution, 64, 512, 256);
-    params.pixelSmoothing = params.pixelSmoothing !== false;
-    params.renderOverlay = params.renderOverlay !== false;
+    params.logAlpha         = this._clampNumber(params.logAlpha, 1, 2000, 200);
+    params.resolution       = this._clampInteger(params.resolution, 64, 512, 256);
+    params.pixelSmoothing   = params.pixelSmoothing !== false;
+    params.renderOverlay    = params.renderOverlay !== false;
     params.renderNodeOverlay = Boolean(params.renderNodeOverlay);
-    params.renderLegend = params.renderLegend !== false;
-    params.renderKeymapRef = Boolean(params.renderKeymapRef);
+    params.renderLegend     = params.renderLegend !== false;
+    params.renderKeymapRef  = Boolean(params.renderKeymapRef);
   }
 
   _sanitiseSliceAndViewParams(params) {
@@ -411,39 +428,16 @@ class AppCore {
     if (!params.viewCentre || typeof params.viewCentre !== "object") {
       params.viewCentre = { x: 0, y: 0, z: 0 };
     }
-
-    params.viewCentre.x = this._clampNumber(
-      params.viewCentre.x,
-      -1024,
-      1024,
-      0,
-    );
-    params.viewCentre.y = this._clampNumber(
-      params.viewCentre.y,
-      -1024,
-      1024,
-      0,
-    );
-    params.viewCentre.z = this._clampNumber(
-      params.viewCentre.z,
-      -1024,
-      1024,
-      0,
-    );
+    params.viewCentre.x = this._clampNumber(params.viewCentre.x, -1024, 1024, 0);
+    params.viewCentre.y = this._clampNumber(params.viewCentre.y, -1024, 1024, 0);
+    params.viewCentre.z = this._clampNumber(params.viewCentre.z, -1024, 1024, 0);
   }
 
   _sanitiseExportParams(params) {
     const fmt = String(params.imageFormat || "png").toLowerCase();
-    params.imageFormat = AppCore.ALLOWED_IMAGE_FORMATS.includes(fmt)
-      ? fmt
-      : "png";
-    params.recordingFPS = this._clampInteger(params.recordingFPS, 12, 120, 60);
-    params.videoBitrateMbps = this._clampNumber(
-      params.videoBitrateMbps,
-      1,
-      64,
-      8,
-    );
+    params.imageFormat       = AppCore.ALLOWED_IMAGE_FORMATS.includes(fmt) ? fmt : "png";
+    params.recordingFPS      = this._clampInteger(params.recordingFPS, 12, 120, 60);
+    params.videoBitrateMbps  = this._clampNumber(params.videoBitrateMbps, 1, 64, 8);
   }
 
   _sanitiseAnalysisConfig() {
@@ -456,8 +450,7 @@ class AppCore {
   }
 
   _sanitisePhysicalParams() {
-    const params = this.params;
-
+    const { params } = this;
     this._sanitiseQuantumParams(params);
     this._sanitiseMassParams(params);
     this._sanitiseRenderParams(params);
@@ -466,13 +459,19 @@ class AppCore {
     this._sanitiseAnalysisConfig();
   }
 
+  // ---------------------------------------------------------------------------
+  // Normalisation peak
+  // ---------------------------------------------------------------------------
+
   getNormalisationPeak() {
     const peak = Number(this._normalisationPeak);
-    if (Number.isFinite(peak) && peak > 0) {
-      return peak;
-    }
+    if (Number.isFinite(peak) && peak > 0) return peak;
     return Math.max(1e-30, Number(this._lastStableNormalisationPeak) || 1e-30);
   }
+
+  // ---------------------------------------------------------------------------
+  // Action queue
+  // ---------------------------------------------------------------------------
 
   _queueAction(name, handler) {
     if (!Array.isArray(this._pendingActions)) {
@@ -489,6 +488,10 @@ class AppCore {
     if (!next || typeof next.handler !== "function") return;
     next.handler();
   }
+
+  // ---------------------------------------------------------------------------
+  // Worker communication
+  // ---------------------------------------------------------------------------
 
   _postWorkerMessage(msg, transfers = [], context = "worker request") {
     if (!this._worker) return false;
@@ -517,9 +520,8 @@ class AppCore {
 
   _handleWorkerFailure(reason, detail = null) {
     this._diagnosticsLogger.error(`Worker ${reason}`, detail);
-
-    this._workerBusy = false;
-    this._renderPending = false;
+    this._workerBusy        = false;
+    this._renderPending     = false;
     this._gridRecycleBuffer = null;
   }
 
@@ -529,91 +531,76 @@ class AppCore {
     } catch (e) {
       throw new Error("[Psi] Worker is required but could not be created.");
     }
-    this._worker.onmessage = (e) => this._onWorkerMessage(e.data);
-    this._worker.onerror = (e) => {
-      this._handleWorkerFailure("runtime error", e);
-    };
-    this._worker.onmessageerror = (e) => {
-      this._handleWorkerFailure("message deserialisation error", e);
-    };
+    this._worker.onmessage      = (e) => this._onWorkerMessage(e.data);
+    this._worker.onerror        = (e) => this._handleWorkerFailure("runtime error", e);
+    this._worker.onmessageerror = (e) => this._handleWorkerFailure("message deserialisation error", e);
   }
 
   _takeGridRecycleTransfer(clear = true) {
     if (!this._gridRecycleBuffer) return [];
     const transfer = [this._gridRecycleBuffer];
-    if (clear) {
-      this._gridRecycleBuffer = null;
-    }
+    if (clear) this._gridRecycleBuffer = null;
     return transfer;
   }
 
   _dispatchRender() {
     this._sanitisePhysicalParams();
-    const {
-      n,
-      l,
-      m,
-      resolution: res,
-      viewRadius,
-      slicePlane,
-      sliceOffset,
-      viewCentre,
-    } = this.params;
+
+    const { n, l, m, resolution: res, viewRadius, slicePlane, sliceOffset, viewCentre } = this.params;
     const analysisSignature = this._getAnalysisSignature();
-    // includeAnalysis is required by both the statistics overlay and the node
-    // overlay.  Either being active is sufficient to request analysis data
-    // from the worker.
+
+    // Analysis data is consumed by both the statistics overlay and the node
+    // overlay.  Either being active is sufficient to request a fresh analysis
+    // pass from the worker.
     const includeAnalysis =
       (this.params.renderOverlay || this.params.renderNodeOverlay) &&
       analysisSignature !== this._analysisSignature;
+
     const analysisViewRadius = this._getCanonicalViewRadius();
     const requestId = ++this._renderRequestId;
-    this._workerBusy = true;
+    this._workerBusy    = true;
     this._renderPending = false;
+
     const reuseGridBuffer =
       this._gridRecycleBuffer instanceof ArrayBuffer
         ? this._gridRecycleBuffer
         : null;
+
     const msg = {
-      type: "render",
+      type:           "render",
       requestId,
-      n,
-      l,
-      m,
-      nuclearCharge: Math.max(
-        1,
-        Math.round(Number(this.params.nuclearCharge) || 1),
-      ),
+      n, l, m,
+      nuclearCharge:  Math.max(1, Math.round(Number(this.params.nuclearCharge) || 1)),
       useReducedMass: this.params.useReducedMass !== false,
-      nucleusMassKg:
-        Number(this.params.nucleusMassKg) || this.params.nucleusMassKg,
+      nucleusMassKg:  Number(this.params.nucleusMassKg) || this.params.nucleusMassKg,
       res,
       viewRadius,
       slicePlane,
       sliceOffset,
-      viewCentre: { x: viewCentre.x, y: viewCentre.y, z: viewCentre.z },
+      viewCentre:     { x: viewCentre.x, y: viewCentre.y, z: viewCentre.z },
       includeAnalysis,
       analysisSignature,
       analysisResolution: this._analysisConfig.resolution,
       analysisViewRadius,
       reuseGridBuffer,
     };
+
     const transfers = this._takeGridRecycleTransfer(false);
-    const posted = this._postWorkerMessage(msg, transfers, "render dispatch");
+    const posted    = this._postWorkerMessage(msg, transfers, "render dispatch");
+
     if (!posted) {
-      this._workerBusy = false;
+      this._workerBusy    = false;
       this._renderPending = true;
       return;
     }
-    if (transfers.length > 0) {
-      this._gridRecycleBuffer = null;
-    }
+
+    if (transfers.length > 0) this._gridRecycleBuffer = null;
   }
 
   _applyWorkerAnalysis(data) {
     const nextPeak = Number(data.analysisPeak);
     if (Number.isFinite(nextPeak) && nextPeak > 0) {
-      this._normalisationPeak = Math.max(1e-30, nextPeak);
+      this._normalisationPeak           = Math.max(1e-30, nextPeak);
       this._lastStableNormalisationPeak = this._normalisationPeak;
     } else {
       this._normalisationPeak = this._lastStableNormalisationPeak;
@@ -629,37 +616,29 @@ class AppCore {
     }
 
     // Apply worker statistics when either overlay that consumes them is active.
+    // Guard is symmetric with the includeAnalysis condition in _dispatchRender.
     if (
       (!this.params.renderOverlay && !this.params.renderNodeOverlay) ||
       !data.analysisStatistics
-    )
+    ) {
       return;
+    }
+
     this.analyser.applyWorkerStatistics(data.analysisStatistics, {
       ...this.params,
-      fps: Number(this.statistics.fps) || 0,
-      resolution:
-        Number(data.analysisResolution) || this._analysisConfig.resolution,
-      viewRadius:
-        Number(data.analysisViewRadius) || this._getCanonicalViewRadius(),
+      fps:        Number(this.statistics.fps) || 0,
+      resolution: Number(data.analysisResolution) || this._analysisConfig.resolution,
+      viewRadius: Number(data.analysisViewRadius) || this._getCanonicalViewRadius(),
       viewCentre: { x: 0, y: 0, z: 0 },
-      aMuMeters: this.aMuMeters,
+      aMuMeters:  this.aMuMeters,
     });
   }
 
   _onWorkerMessage(data) {
     if (data && typeof data === "object" && data.type === "workerError") {
-      const stage =
-        typeof data.stage === "string" && data.stage
-          ? data.stage
-          : "unknown stage";
-      const message =
-        typeof data.message === "string" && data.message
-          ? data.message
-          : "unknown worker failure";
-      this._handleWorkerFailure(
-        `reported failure during ${stage}: ${message}`,
-        data,
-      );
+      const stage   = typeof data.stage   === "string" && data.stage   ? data.stage   : "unknown stage";
+      const message = typeof data.message === "string" && data.message ? data.message : "unknown worker failure";
+      this._handleWorkerFailure(`reported failure during ${stage}: ${message}`, data);
       return;
     }
 
@@ -668,9 +647,7 @@ class AppCore {
       return;
     }
 
-    if (Number(data.requestId) !== this._renderRequestId) {
-      return;
-    }
+    if (Number(data.requestId) !== this._renderRequestId) return;
 
     if (!(data.grid instanceof ArrayBuffer)) {
       this._workerBusy = false;
@@ -679,13 +656,9 @@ class AppCore {
 
     const safeResolution = Math.max(
       64,
-      Math.min(
-        512,
-        Math.round(Number(data.resolution) || this.params.resolution),
-      ),
+      Math.min(512, Math.round(Number(data.resolution) || this.params.resolution)),
     );
-    const expectedBytes =
-      safeResolution * safeResolution * Float32Array.BYTES_PER_ELEMENT;
+    const expectedBytes = safeResolution * safeResolution * Float32Array.BYTES_PER_ELEMENT;
     if (data.grid.byteLength !== expectedBytes) {
       this._workerBusy = false;
       return;
@@ -708,12 +681,15 @@ class AppCore {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // GUI coordination
+  // ---------------------------------------------------------------------------
+
   syncViewConstraints() {
     if (this.gui && typeof this.gui.updateViewConstraints === "function") {
       this.gui.updateViewConstraints();
       return;
     }
-
     this.requestRender();
   }
 
@@ -721,36 +697,31 @@ class AppCore {
     if (this.gui && typeof this.gui.syncMediaControls === "function") {
       this.gui.syncMediaControls();
     }
-
     if (this.gui && typeof this.gui.refresh === "function") {
       this.gui.refresh();
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Teardown
+  // ---------------------------------------------------------------------------
+
   dispose() {
     if (this._worker) {
-      this._worker.onmessage = null;
-      this._worker.onerror = null;
+      this._worker.onmessage      = null;
+      this._worker.onerror        = null;
       this._worker.onmessageerror = null;
       this._worker.terminate();
       this._worker = null;
     }
-    this._workerBusy = false;
-    this._renderPending = false;
-    this._renderRequestId = 0;
+    this._workerBusy        = false;
+    this._renderPending     = false;
+    this._renderRequestId   = 0;
     this._gridRecycleBuffer = null;
-    this._pendingActions = [];
+    this._pendingActions    = [];
 
-    if (this.media && typeof this.media.dispose === "function") {
-      this.media.dispose();
-    }
-
-    if (this.renderer && typeof this.renderer.dispose === "function") {
-      this.renderer.dispose();
-    }
-
-    if (this.gui && typeof this.gui.dispose === "function") {
-      this.gui.dispose();
-    }
+    if (this.media    && typeof this.media.dispose    === "function") this.media.dispose();
+    if (this.renderer && typeof this.renderer.dispose === "function") this.renderer.dispose();
+    if (this.gui      && typeof this.gui.dispose      === "function") this.gui.dispose();
   }
 }
