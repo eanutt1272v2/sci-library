@@ -253,14 +253,14 @@ class InputHandler {
     } else if (match("quantumM", 0) || match("quantumM", 1)) {
       this.appcore.updateQuantumNumbers("m", match("quantumM", 0) ? 1 : -1);
       logMsg = `m changed to ${this.appcore.params.m}`;
-    } else if (match("nodeOverlayAlpha", 0)) {
-      // F  — increase node overlay opacity by 0.05
-      this.appcore.adjustNodeOverlayAlpha(0.05);
-      logMsg = `Node overlay opacity = ${this.appcore.params.nodeOverlayAlpha.toFixed(2)}`;
-    } else if (match("nodeOverlayAlpha", 1)) {
-      // V  — decrease node overlay opacity by 0.05
-      this.appcore.adjustNodeOverlayAlpha(-0.05);
-      logMsg = `Node overlay opacity = ${this.appcore.params.nodeOverlayAlpha.toFixed(2)}`;
+    } else if (match("logAlpha", 0)) {
+      // ] — increase log-gamma normalisation alpha by 10
+      this.appcore.adjustLogAlpha(10);
+      logMsg = `Log-gamma alpha = ${this.appcore.params.logAlpha}`;
+    } else if (match("logAlpha", 1)) {
+      // [ — decrease log-gamma normalisation alpha by 10
+      this.appcore.adjustLogAlpha(-10);
+      logMsg = `Log-gamma alpha = ${this.appcore.params.logAlpha}`;
     }
 
     const matchedPlane =
@@ -414,103 +414,66 @@ class InputHandler {
       return;
     }
 
-    const ratio = distance / this.gesture.pinch.distance;
-    const zoomScale = 1 / max(ratio, 1e-6);
+    const zoomScale = this.gesture.pinch.distance / Math.max(1, distance);
     if (
-      !this.applyZoomAtNormalisedPoint(
+      this.applyZoomAtNormalisedPoint(
         cx / max(1, width),
         cy / max(1, height),
         zoomScale,
       )
     ) {
-      return;
+      this.appcore.syncViewConstraints();
     }
 
     this.gesture.pinch.distance = distance;
-    this.appcore.syncViewConstraints();
   }
 
   applyZoomAtNormalisedPoint(nx, ny, zoomScale) {
     const { params } = this.appcore;
+    const { axis1, axis2 } = this.appcore.getPlaneAxes();
     const oldRadius = params.viewRadius;
     const newRadius = constrain(oldRadius * zoomScale, 1, 256);
+    if (Math.abs(newRadius - oldRadius) < 1e-6) return false;
 
-    if (newRadius === oldRadius) {
-      return false;
-    }
+    const worldX = params.viewCentre[axis1] + (nx * 2 - 1) * oldRadius;
+    const worldY = params.viewCentre[axis2] + (ny * 2 - 1) * oldRadius;
 
-    const clampedNx = constrain(nx, 0, 1);
-    const clampedNy = constrain(ny, 0, 1);
-    const { axis1, axis2 } = this.appcore.getPlaneAxes();
-    params.viewCentre[axis1] += (clampedNx - 0.5) * (oldRadius - newRadius) * 2;
-    params.viewCentre[axis2] += (clampedNy - 0.5) * (oldRadius - newRadius) * 2;
     params.viewRadius = newRadius;
+    params.viewCentre[axis1] = worldX - (nx * 2 - 1) * newRadius;
+    params.viewCentre[axis2] = worldY - (ny * 2 - 1) * newRadius;
 
     return true;
   }
 
-  panCurrentPlane(delta1, delta2) {
+  panCurrentPlane(dx, dy) {
+    const { params } = this.appcore;
     const { axis1, axis2 } = this.appcore.getPlaneAxes();
-    this.appcore.params.viewCentre[axis1] += delta1;
-    this.appcore.params.viewCentre[axis2] += delta2;
-  }
-
-  _setHeldKey(value, isHeld, event = null) {
-    const keyValue = KeyboardUtils.normaliseKey(value);
-    this._syncHeldModifiersFromEvent(event);
-    if (!keyValue) return;
-    const keyLower = KeyboardUtils.toLower(keyValue);
-
-    if (isHeld) {
-      this._heldKeys.add(keyValue);
-      this._heldKeys.add(keyLower);
-      return;
-    }
-
-    this._heldKeys.delete(keyValue);
-    this._heldKeys.delete(keyLower);
-  }
-
-  _syncHeldModifiersFromEvent(event = null) {
-    if (!event || typeof event !== "object") return;
-
-    const modifiers = [
-      ["shift", Boolean(event.shiftKey), ["shift"]],
-      ["control", Boolean(event.ctrlKey), ["control", "ctrl"]],
-      ["alt", Boolean(event.altKey), ["alt", "option"]],
-      ["meta", Boolean(event.metaKey), ["meta", "command", "cmd"]],
-    ];
-
-    for (const [, isDown, aliases] of modifiers) {
-      for (const alias of aliases) {
-        if (isDown) {
-          this._heldKeys.add(alias);
-        } else {
-          this._heldKeys.delete(alias);
-        }
-      }
-    }
-  }
-
-  _isKeyHeld(...values) {
-    return values.some((value) => this._heldKeys.has(value));
-  }
-
-  _isHintHeld(hintId, optionIndex = null) {
-    return (
-      typeof KeybindCatalogue !== "undefined" &&
-      typeof KeybindCatalogue.matchHintFromHeldSet === "function" &&
-      KeybindCatalogue.matchHintFromHeldSet(
-        "psi",
-        hintId,
-        this._heldKeys,
-        optionIndex,
-      )
-    );
+    params.viewCentre[axis1] += dx;
+    params.viewCentre[axis2] += dy;
   }
 
   resetGesture() {
     this.gesture.pan = null;
     this.gesture.pinch = null;
+  }
+
+  _isHintHeld(hintId, optionIndex = 0) {
+    if (
+      typeof KeybindCatalogue === "undefined" ||
+      typeof KeybindCatalogue.getHintKey === "function" === false
+    ) {
+      return false;
+    }
+    const key = KeybindCatalogue.getHintKey("psi", hintId, optionIndex);
+    return key ? this._heldKeys.has(key) : false;
+  }
+
+  _setHeldKey(keyValue, down, event) {
+    if (!keyValue) return;
+    if (down) {
+      this._heldKeys.add(keyValue);
+    } else {
+      this._heldKeys.delete(keyValue);
+    }
   }
 }
