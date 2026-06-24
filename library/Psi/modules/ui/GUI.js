@@ -234,6 +234,20 @@ class GUI {
       })
       .on("change", () => this.appcore.requestRender());
 
+    // Log-gamma normalisation alpha slider, directly beneath the colour map
+    // dropdown.  Larger alpha = more dynamic-range compression; dim lobes are
+    // lifted while bright regions are gently compressed.
+    // Range [1, 2000], step 1; keyboard increments of 10 via [ and ].
+    appearance
+      .addBinding(this.appcore.params, "logAlpha", {
+        label: this.withHint("Log-\u03b3 Alpha \u03b1", "logAlpha", "[/]"),
+        min: 1,
+        max: 2000,
+        step: 1,
+        format: (v) => Number(v).toFixed(0),
+      })
+      .on("change", () => this.appcore.requestRender());
+
     this.addSeparator(page);
 
     const quality = page.addFolder({ title: "Sampling", expanded: true });
@@ -263,20 +277,6 @@ class GUI {
     overlay
       .addBinding(this.appcore.params, "renderLegend", {
         label: this.withHint("Toggle Legend", "legend", "L"),
-      })
-      .on("change", () => this.appcore.requestRender());
-
-    // nodeOverlayAlpha: exposed directly beneath the colour map dropdown,
-    // following the same withHint pattern used by every other adjustable
-    // render parameter.  The slider range [0, 1] with step 0.01 matches the
-    // precision of the keyboard increment (0.05 rounded to 2 d.p.).
-    overlay
-      .addBinding(this.appcore.params, "nodeOverlayAlpha", {
-        label: this.withHint("Node Overlay Opacity", "nodeOverlayAlpha", "F/V"),
-        min: 0,
-        max: 1,
-        step: 0.01,
-        format: (v) => Number(v).toFixed(2),
       })
       .on("change", () => this.appcore.requestRender());
 
