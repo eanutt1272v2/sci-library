@@ -11,9 +11,9 @@ if (typeof importScripts === "function") {
   }
 
   try {
-    importScripts("../../../_shared/utils/QuantumMath.js");
+    importScripts("../math/QMath.js");
   } catch (_error) {
-    console.error("Failed to load QuantumMath.js.", _error);
+    console.error("Failed to load QMath.js.", _error);
   }
 }
 
@@ -91,10 +91,10 @@ function clamp(value, min, max) {
 const toFiniteNumber = _workerSanitisers.toFiniteNumber;
 const toInteger = _workerSanitisers.toInteger;
 
-const { logGamma, genLaguerre, assocLegendre } = globalThis.QuantumMath || {};
+const { logGamma, genLaguerre, assocLegendre } = globalThis.QMath || {};
 
 if (!logGamma || !genLaguerre || !assocLegendre) {
-  console.error("[PsiWorker] QuantumMath failed to load. Wavefunction evaluation will not work.");
+  console.error("[PsiWorker] QMath failed to load. Wavefunction evaluation will not work.");
 }
 
 function sanitiseRenderPayload(data) {
