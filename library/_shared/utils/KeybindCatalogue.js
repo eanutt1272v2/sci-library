@@ -361,6 +361,7 @@ class KeybindCatalogue {
           title: "Rendering",
           entries: Object.freeze([
             ["C", "Cycle colour map"],
+            ["[ / ]", "Log-\u03b3 normalisation alpha -/+ 10"],
             ["M", "Toggle pixel smoothing"],
             ["O", "Toggle overlay"],
             ["N", "Toggle detected node overlay"],
@@ -391,6 +392,7 @@ class KeybindCatalogue {
         reducedMass: "P",
         nucleusMass: "G/B",
         colourMap: "C",
+        logAlpha: "[/]",
         resolution: "+/-",
         smoothing: "M",
         overlay: "O",
@@ -520,3 +522,92 @@ class KeybindCatalogue {
     const normalised = String(token || "")
       .trim()
       .toLowerCase();
+    if (normalised === "ctrl") return "control";
+    if (normalised === "cmd") return "meta";
+    return normalised;
+  }
+
+  static _parseCombo(raw) {
+    const cached = KeybindCatalogue._comboCache.get(raw);
+    if (cached) return cached;
+
+    const parts = String(raw || "")
+      .split("+")
+      .map((p) => p.trim().toLowerCase())
+      .filter(Boolean);
+
+    const mods = new Set();
+    let key = "";
+
+    for (let i = 0; i < parts.length; i++) {
+      const p = KeybindCatalogue._modAlias(parts[i]);
+      if (p === "shift" || p === "control" || p === "alt" || p === "meta") {
+        mods.add(p);
+      } else {
+        key = p;
+      }
+    }
+
+    const result = { mods, key };
+    KeybindCatalogue._comboCache.set(raw, result);
+    return result;
+  }
+
+  static _normaliseKeyForMatch(rawKey) {
+    const s = String(rawKey || "").trim();
+    if (s.length === 1) return s.toLowerCase();
+    return s.toLowerCase();
+  }
+
+  static matchHint(sketchId, hintId, keyValue, kCode, event, optionIndex) {
+    const hint = KeybindCatalogue.getHint(sketchId, hintId, "");
+    if (!hint) return false;
+
+    const options = hint.split("/").map((s) => s.trim());
+    const idx = optionIndex ?? 0;
+    const target = options[idx];
+    if (!target) return false;
+
+    const { mods, key } = KeybindCatalogue._parseCombo(target);
+
+    const eventCtrl = event?.ctrlKey || event?.metaKey || false;
+    const eventShift = event?.shiftKey || false;
+    const eventAlt = event?.altKey || false;
+
+    if (mods.has("control") !== eventCtrl) return false;
+    if (mods.has("shift") !== eventShift) return false;
+    if (mods.has("alt") !== eventAlt) return false;
+
+    const normKey = KeybindCatalogue._normaliseKeyForMatch(keyValue);
+    if (normKey === key) return true;
+
+    if (kCode !== undefined && kCode !== null) {
+      const codeStr = String(kCode);
+      if (codeStr === key) return true;
+    }
+
+    return false;
+  }
+
+  static matchHintIndex(sketchId, hintId, keyValue, kCode, event) {
+    const hint = KeybindCatalogue.getHint(sketchId, hintId, "");
+    if (!hint) return -1;
+
+    const options = hint.split("/").map((s) => s.trim());
+    for (let i = 0; i < options.length; i++) {
+      if (
+        KeybindCatalogue.matchHint(sketchId, hintId, keyValue, kCode, event, i)
+      ) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  static getHintKey(sketchId, hintId, optionIndex = 0) {
+    const hint = KeybindCatalogue.getHint(sketchId, hintId, "");
+    if (!hint) return "";
+    const options = hint.split("/").map((s) => s.trim());
+    return options[optionIndex] || "";
+  }
+}
