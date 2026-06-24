@@ -38,16 +38,17 @@ class AppCore {
         ? "rocket"
         : this.colourMapKeys[0],
 
+      // Log-gamma tone-map compression parameter alpha.
+      // The normalised display value u = log(1 + alpha*t) / log(1 + alpha).
+      // Larger alpha = more compression of bright regions, lifting dim lobes.
+      logAlpha: 200,
+
       resolution: 256,
       pixelSmoothing: true,
       renderOverlay: true,
       renderNodeOverlay: false,
       renderLegend: true,
       renderKeymapRef: false,
-
-      // Opacity of the nodal detection overlay lines [0, 1].
-      // 1.0 = fully opaque, 0.0 = invisible.
-      nodeOverlayAlpha: 0.9,
 
       viewRadius: 45,
       slicePlane: "xz",
@@ -208,11 +209,11 @@ class AppCore {
     this.requestRender();
   }
 
-  // Adjusts nodeOverlayAlpha by delta, clamped to [0, 1].
-  adjustNodeOverlayAlpha(delta) {
-    this.params.nodeOverlayAlpha = Math.max(
-      0,
-      Math.min(1, Math.round((this.params.nodeOverlayAlpha + delta) * 100) / 100),
+  // Adjusts the log-gamma normalisation alpha by delta, clamped to [1, 2000].
+  adjustLogAlpha(delta) {
+    this.params.logAlpha = Math.max(
+      1,
+      Math.min(2000, Math.round(this.params.logAlpha + delta)),
     );
     this.refreshGUI();
     this.requestRender();
@@ -309,27 +310,6 @@ class AppCore {
     }
   }
 
-  // Heuristic outer-lobe radius.
-  //
-  // The old formula ⟨r⟩ = (3n² − ℓ(ℓ+1)) / (2Z) is the expectation value of
-  // r, which is dominated by the bulk of the radial probability distribution.
-  // For low-ℓ orbitals with many radial nodes (e.g. n=9, ℓ=0) the outermost
-  // node lies well beyond ⟨r⟩, so the view was systematically too tight.
-  // For high-ℓ orbitals (e.g. n=9, ℓ=8) ⟨r⟩ was a reasonable estimate
-  // because there are no radial nodes.
-  //
-  // A better heuristic is to approximate the outermost lobe position using
-  // the classical turning-point radius of the effective potential.  For a
-  // given (n,ℓ) the outermost turning point of the effective radial potential
-  // V_eff = −Z/r + ℓ(ℓ+1)/(2r²) at energy E_n = −Z²/(2n²) is
-  //
-  //   r_+ = (n²/Z) [ 1 + sqrt(1 − (ℓ+½)²/n²) ]
-  //
-  // This is exact for the Kepler-orbit classical analogue and gives the
-  // correct n²/Z scaling while gracefully reducing to n²/Z for ℓ = n−1
-  // (circular orbits) and to 2n²/Z for ℓ = 0 (radial orbits).
-  // A padding factor of 1.15 is applied so the outermost lobe always sits
-  // comfortably inside the frame.
   _getCanonicalViewRadius() {
     const n = Math.max(1, Number(this.params.n) || 1);
     const l = Math.max(0, Number(this.params.l) || 0);
@@ -337,7 +317,6 @@ class AppCore {
 
     const lHalf = l + 0.5;
     const ratio = lHalf / n;
-    // ratio is always ≤ (n-0.5)/n < 1, so the sqrt is real.
     const outerRadius = (n * n / Z) * (1 + Math.sqrt(Math.max(0, 1 - ratio * ratio)));
     const padded = outerRadius * 1.15;
     return Math.max(8, Math.min(512, padded));
@@ -408,18 +387,13 @@ class AppCore {
     if (!this.colourMapKeys.includes(params.colourMap)) {
       params.colourMap = this.colourMapKeys[0];
     }
+    params.logAlpha = this._clampNumber(params.logAlpha, 1, 2000, 200);
     params.resolution = this._clampInteger(params.resolution, 64, 512, 256);
     params.pixelSmoothing = params.pixelSmoothing !== false;
     params.renderOverlay = params.renderOverlay !== false;
     params.renderNodeOverlay = Boolean(params.renderNodeOverlay);
     params.renderLegend = params.renderLegend !== false;
     params.renderKeymapRef = Boolean(params.renderKeymapRef);
-    params.nodeOverlayAlpha = this._clampNumber(
-      params.nodeOverlayAlpha,
-      0,
-      1,
-      0.9,
-    );
   }
 
   _sanitiseSliceAndViewParams(params) {
@@ -438,7 +412,6 @@ class AppCore {
       params.viewCentre = { x: 0, y: 0, z: 0 };
     }
 
-    // Keep the same object reference so GUI bindings remain valid.
     params.viewCentre.x = this._clampNumber(
       params.viewCentre.x,
       -1024,
