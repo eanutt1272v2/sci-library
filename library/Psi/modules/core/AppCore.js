@@ -560,8 +560,11 @@ class AppCore {
       viewCentre,
     } = this.params;
     const analysisSignature = this._getAnalysisSignature();
+    // includeAnalysis is required by both the statistics overlay and the node
+    // overlay.  Either being active is sufficient to request analysis data
+    // from the worker.
     const includeAnalysis =
-      this.params.renderOverlay &&
+      (this.params.renderOverlay || this.params.renderNodeOverlay) &&
       analysisSignature !== this._analysisSignature;
     const analysisViewRadius = this._getCanonicalViewRadius();
     const requestId = ++this._renderRequestId;
@@ -625,7 +628,12 @@ class AppCore {
       this._analysisSignature = data.analysisSignature;
     }
 
-    if (!this.params.renderOverlay || !data.analysisStatistics) return;
+    // Apply worker statistics when either overlay that consumes them is active.
+    if (
+      (!this.params.renderOverlay && !this.params.renderNodeOverlay) ||
+      !data.analysisStatistics
+    )
+      return;
     this.analyser.applyWorkerStatistics(data.analysisStatistics, {
       ...this.params,
       fps: Number(this.statistics.fps) || 0,

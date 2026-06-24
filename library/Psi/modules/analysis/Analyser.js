@@ -35,8 +35,8 @@ class Analyser {
     let logNormR = 1.5 * Math.log((2.0 * Z) / (n * aMuMeters));
     logNormR +=
       0.5 *
-      (QuantumMath.logGamma(n - l) -
-        (Math.log(2.0 * n) + QuantumMath.logGamma(n + l + 1)));
+      (QMath.logGamma(n - l) -
+        (Math.log(2.0 * n) + QMath.logGamma(n + l + 1)));
 
     const expectedRadiusAMu = (3 * n * n - l * (l + 1)) / (2 * Z);
     const maxRadiusAMu = Math.max(
@@ -60,7 +60,7 @@ class Analyser {
         Math.exp(logNormR) *
         Math.exp(-rho / 2.0) *
         Math.pow(rho, l) *
-        QuantumMath.genLaguerre(n - l - 1, 2 * l + 1, rho);
+        QMath.genLaguerre(n - l - 1, 2 * l + 1, rho);
 
       if (!Number.isFinite(radialComponent)) continue;
 
@@ -138,7 +138,7 @@ class Analyser {
     const angularCount = Math.max(0, l - mAbs);
     if (angularCount <= 0) return [];
 
-    const fn = (u) => QuantumMath.assocLegendre(l, mAbs, u);
+    const fn = (u) => QMath.assocLegendre(l, mAbs, u);
     const roots = [];
     const steps = 2048;
     const minU = -0.999999;
@@ -201,7 +201,7 @@ class Analyser {
     if (radialCount <= 0) return [];
 
     const alpha = 2 * l + 1;
-    const laguerre = (rho) => QuantumMath.genLaguerre(radialCount, alpha, rho);
+    const laguerre = (rho) => QMath.genLaguerre(radialCount, alpha, rho);
     const roots = [];
     const maxRho = Math.max(64, 8 * n * n);
     const steps = 4096;
