@@ -10,7 +10,6 @@ class AppCore {
 
   constructor(assets) {
     const { metadata, colourMaps, font } = assets;
-
     this.metadata   = metadata;
     this._diagnosticsLogger =
       typeof AppDiagnostics !== "undefined" &&
@@ -19,12 +18,10 @@ class AppCore {
         : { info() {}, warn() {}, error() {}, debug() {} };
     this.colourMaps    = colourMaps || {};
     this.colourMapKeys = Object.keys(this.colourMaps);
-
     if (this.colourMapKeys.length === 0) {
       this.colourMaps    = { greyscale: ColourMapLUT.GREYSCALE };
       this.colourMapKeys = ["greyscale"];
     }
-
     this.params = {
       orbitalNotation: "",
       n:              4,
@@ -33,33 +30,24 @@ class AppCore {
       nuclearCharge:  1,
       useReducedMass: true,
       nucleusMassKg:  1.67262192369e-27,
-
       colourMap: this.colourMapKeys.includes("rocket")
         ? "rocket"
         : this.colourMapKeys[0],
-
-      // Log-gamma tone-map compression parameter alpha.
-      // Normalised display value: u = log(1 + alpha*t) / log(1 + alpha).
-      // Larger alpha = more compression of bright regions, lifting dim lobes.
       logAlpha: 200,
-
       resolution:       256,
       pixelSmoothing:   true,
       renderOverlay:    true,
       renderNodeOverlay: false,
       renderLegend:     true,
       renderKeymapRef:  false,
-
       viewRadius:  45,
       slicePlane:  "xz",
       sliceOffset: 0,
       viewCentre:  { x: 0, y: 0, z: 0 },
-
       imageFormat:       "png",
       recordingFPS:      60,
       videoBitrateMbps:  8,
     };
-
     this.statistics = {
       fps:           0,
       density:       0,
@@ -72,35 +60,26 @@ class AppCore {
       radialSpread:  0,
       nodeEstimate:  0,
     };
-
     this.font = font;
-
     this._pendingActions              = [];
     this._analysisConfig              = { resolution: 384 };
     this._analysisSignature           = "";
     this._normalisationPeak           = 1e-30;
     this._lastStableNormalisationPeak = 1e-30;
     this.aMuMeters                    = 5.29177210903e-11;
-
     this.analyser = new Analyser(this.statistics);
     this.renderer = new Renderer(this);
     this.media    = new Media(this);
     this.gui      = new GUI(this);
     this.input    = new InputHandler(this);
-
     this._worker            = null;
     this._workerBusy        = false;
     this._renderPending     = false;
     this._renderRequestId   = 0;
     this._gridRecycleBuffer = null;
     this._initWorker();
-
     this.requestRender();
   }
-
-  // ---------------------------------------------------------------------------
-  // p5 lifecycle hooks
-  // ---------------------------------------------------------------------------
 
   update() {
     this.input.handleContinuousInput();
@@ -109,15 +88,10 @@ class AppCore {
 
   render() {
     this.renderer.render();
-
     if (this._pendingActions.length > 0) {
       this._runNextAction();
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // Quantum state helpers
-  // ---------------------------------------------------------------------------
 
   updateQuantumNumbers(type, delta) {
     if (type === "n") {
@@ -130,13 +104,8 @@ class AppCore {
     } else if (type === "m") {
       this.params.m += delta;
     }
-
     this.gui.enforceConstraints();
   }
-
-  // ---------------------------------------------------------------------------
-  // View / display toggles
-  // ---------------------------------------------------------------------------
 
   changePlane(plane) {
     if (["xy", "xz", "yz"].includes(plane)) {
@@ -177,10 +146,6 @@ class AppCore {
   toggleKeymapRef() {
     this.params.renderKeymapRef = !this.params.renderKeymapRef;
   }
-
-  // ---------------------------------------------------------------------------
-  // View adjustments
-  // ---------------------------------------------------------------------------
 
   resetViewRadius() {
     this.params.viewRadius = 45;
@@ -225,7 +190,6 @@ class AppCore {
     this.requestRender();
   }
 
-  // Adjusts the log-gamma normalisation alpha by delta, clamped to [1, 2000].
   adjustLogAlpha(delta) {
     this.params.logAlpha = Math.max(
       1,
@@ -235,17 +199,9 @@ class AppCore {
     this.requestRender();
   }
 
-  // ---------------------------------------------------------------------------
-  // Media / export
-  // ---------------------------------------------------------------------------
-
   exportImage() {
     this.media.exportImage();
   }
-
-  // ---------------------------------------------------------------------------
-  // Canvas / input event proxies
-  // ---------------------------------------------------------------------------
 
   resize() {
     const canvasSize = min(windowWidth, windowHeight);
@@ -285,10 +241,6 @@ class AppCore {
     return true;
   }
 
-  // ---------------------------------------------------------------------------
-  // Geometry helpers
-  // ---------------------------------------------------------------------------
-
   getPlaneAxes() {
     switch (this.params.slicePlane) {
       case "xy":
@@ -310,17 +262,12 @@ class AppCore {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Render pipeline
-  // ---------------------------------------------------------------------------
-
   requestRender() {
     this._queueAction("render", () => this._requestRenderNow());
   }
 
   _requestRenderNow() {
     if (!this._worker) return;
-
     if (this._workerBusy) {
       this._renderPending = true;
     } else {
@@ -344,20 +291,13 @@ class AppCore {
     const useReducedMass = this.params.useReducedMass !== false;
     const nucleusMassKg  = Number(this.params.nucleusMassKg) || 0;
     return [
-      n,
-      l,
-      m,
-      slicePlane,
+      n, l, m, slicePlane,
       Number(sliceOffset).toFixed(6),
       Number(nuclearCharge || 1),
       useReducedMass ? 1 : 0,
       Number(nucleusMassKg || 0).toPrecision(8),
     ].join("|");
   }
-
-  // ---------------------------------------------------------------------------
-  // Param sanitisation
-  // ---------------------------------------------------------------------------
 
   _clampNumber(value, min, max, fallback = min) {
     const numeric = Number(value);
@@ -386,12 +326,10 @@ class AppCore {
   _sanitiseMassParams(params) {
     const protonMassKg = 1.67262192369e-27;
     params.useReducedMass = params.useReducedMass !== false;
-
     const fallbackMass =
       params.nuclearCharge === 1
         ? protonMassKg
         : Math.max(protonMassKg, params.nuclearCharge * protonMassKg);
-
     params.nucleusMassKg = this._clampNumber(
       params.nucleusMassKg,
       1e-33,
@@ -424,7 +362,6 @@ class AppCore {
       params.viewRadius,
       0,
     );
-
     if (!params.viewCentre || typeof params.viewCentre !== "object") {
       params.viewCentre = { x: 0, y: 0, z: 0 };
     }
@@ -459,19 +396,11 @@ class AppCore {
     this._sanitiseAnalysisConfig();
   }
 
-  // ---------------------------------------------------------------------------
-  // Normalisation peak
-  // ---------------------------------------------------------------------------
-
   getNormalisationPeak() {
     const peak = Number(this._normalisationPeak);
     if (Number.isFinite(peak) && peak > 0) return peak;
     return Math.max(1e-30, Number(this._lastStableNormalisationPeak) || 1e-30);
   }
-
-  // ---------------------------------------------------------------------------
-  // Action queue
-  // ---------------------------------------------------------------------------
 
   _queueAction(name, handler) {
     if (!Array.isArray(this._pendingActions)) {
@@ -489,13 +418,8 @@ class AppCore {
     next.handler();
   }
 
-  // ---------------------------------------------------------------------------
-  // Worker communication
-  // ---------------------------------------------------------------------------
-
   _postWorkerMessage(msg, transfers = [], context = "worker request") {
     if (!this._worker) return false;
-
     if (
       typeof AppDiagnostics !== "undefined" &&
       typeof AppDiagnostics.safePostMessage === "function"
@@ -508,7 +432,6 @@ class AppCore {
         context,
       );
     }
-
     try {
       this._worker.postMessage(msg, transfers);
       return true;
@@ -545,27 +468,19 @@ class AppCore {
 
   _dispatchRender() {
     this._sanitisePhysicalParams();
-
     const { n, l, m, resolution: res, viewRadius, slicePlane, sliceOffset, viewCentre } = this.params;
     const analysisSignature = this._getAnalysisSignature();
-
-    // Analysis data is consumed by both the statistics overlay and the node
-    // overlay.  Either being active is sufficient to request a fresh analysis
-    // pass from the worker.
     const includeAnalysis =
       (this.params.renderOverlay || this.params.renderNodeOverlay) &&
       analysisSignature !== this._analysisSignature;
-
     const analysisViewRadius = this._getCanonicalViewRadius();
     const requestId = ++this._renderRequestId;
     this._workerBusy    = true;
     this._renderPending = false;
-
     const reuseGridBuffer =
       this._gridRecycleBuffer instanceof ArrayBuffer
         ? this._gridRecycleBuffer
         : null;
-
     const msg = {
       type:           "render",
       requestId,
@@ -584,16 +499,13 @@ class AppCore {
       analysisViewRadius,
       reuseGridBuffer,
     };
-
     const transfers = this._takeGridRecycleTransfer(false);
     const posted    = this._postWorkerMessage(msg, transfers, "render dispatch");
-
     if (!posted) {
       this._workerBusy    = false;
       this._renderPending = true;
       return;
     }
-
     if (transfers.length > 0) this._gridRecycleBuffer = null;
   }
 
@@ -605,25 +517,19 @@ class AppCore {
     } else {
       this._normalisationPeak = this._lastStableNormalisationPeak;
     }
-
     const workerAMu = Number(data.analysisAMu);
     if (Number.isFinite(workerAMu) && workerAMu > 0) {
       this.aMuMeters = workerAMu;
     }
-
     if (typeof data.analysisSignature === "string" && data.analysisSignature) {
       this._analysisSignature = data.analysisSignature;
     }
-
-    // Apply worker statistics when either overlay that consumes them is active.
-    // Guard is symmetric with the includeAnalysis condition in _dispatchRender.
     if (
       (!this.params.renderOverlay && !this.params.renderNodeOverlay) ||
       !data.analysisStatistics
     ) {
       return;
     }
-
     this.analyser.applyWorkerStatistics(data.analysisStatistics, {
       ...this.params,
       fps:        Number(this.statistics.fps) || 0,
@@ -641,19 +547,15 @@ class AppCore {
       this._handleWorkerFailure(`reported failure during ${stage}: ${message}`, data);
       return;
     }
-
     if (!data || typeof data !== "object" || data.type !== "result") {
       this._workerBusy = false;
       return;
     }
-
     if (Number(data.requestId) !== this._renderRequestId) return;
-
     if (!(data.grid instanceof ArrayBuffer)) {
       this._workerBusy = false;
       return;
     }
-
     const safeResolution = Math.max(
       64,
       Math.min(512, Math.round(Number(data.resolution) || this.params.resolution)),
@@ -663,9 +565,7 @@ class AppCore {
       this._workerBusy = false;
       return;
     }
-
     const safePeak = Number(data.peak);
-
     this._workerBusy = false;
     this._applyWorkerAnalysis(data);
     this.renderer.renderFromGrid(
@@ -674,16 +574,11 @@ class AppCore {
       safeResolution,
     );
     this._gridRecycleBuffer = data.grid;
-
     if (this._renderPending) {
       this._renderPending = false;
       this._dispatchRender();
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // GUI coordination
-  // ---------------------------------------------------------------------------
 
   syncViewConstraints() {
     if (this.gui && typeof this.gui.updateViewConstraints === "function") {
@@ -702,10 +597,6 @@ class AppCore {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Teardown
-  // ---------------------------------------------------------------------------
-
   dispose() {
     if (this._worker) {
       this._worker.onmessage      = null;
@@ -719,7 +610,6 @@ class AppCore {
     this._renderRequestId   = 0;
     this._gridRecycleBuffer = null;
     this._pendingActions    = [];
-
     if (this.media    && typeof this.media.dispose    === "function") this.media.dispose();
     if (this.renderer && typeof this.renderer.dispose === "function") this.renderer.dispose();
     if (this.gui      && typeof this.gui.dispose      === "function") this.gui.dispose();
