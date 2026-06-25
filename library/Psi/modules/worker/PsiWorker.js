@@ -62,9 +62,7 @@ function _reportWorkerError(stage, error) {
   }
   try {
     console.error(`[PsiWorker] ${payload.stage}: ${payload.message}`);
-  } catch {
-    // Ignore logging failures.
-  }
+  } catch (_) {}
 }
 
 self.onerror = function (_message, _source, _lineno, _colno, error) {
@@ -345,7 +343,6 @@ function estimateOrbitalNodeCount3D(orbitalParams) {
 function computeDensityStatistics(grid, resolution, viewRadius, orbitalParams) {
   if (!grid || grid.length === 0) {
     return {
-      density: 0,
       peakDensity: 0,
       mean: 0,
       stdDev: 0,
@@ -396,7 +393,6 @@ function computeDensityStatistics(grid, resolution, viewRadius, orbitalParams) {
   );
 
   return {
-    density: mean,
     peakDensity: peak,
     mean,
     stdDev,
