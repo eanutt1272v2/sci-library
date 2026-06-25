@@ -23,6 +23,11 @@ class Renderer {
     this._cachedLogAlpha  = -1;
     this._cachedLogDenom  = Math.log(1 + Renderer.DEFAULT_LOG_ALPHA);
     this._screenPoint     = { x: 0, y: 0 };
+    // Legend gradient cache — invalidated when colourMap or logAlpha changes
+    this._legendGradientCanvas  = null;
+    this._legendGradientCmKey   = "";
+    this._legendGradientAlpha   = -1;
+    this._legendGradientH       = 0;
   }
 
   _createReadbackBuffer(widthPx, heightPx) {
@@ -42,6 +47,7 @@ class Renderer {
       this.buffer.remove();
     }
     this.buffer = null;
+    this._legendGradientCanvas = null;
   }
 
   _getLogAlpha() {
@@ -71,6 +77,8 @@ class Renderer {
     if (!colourData) return;
     this.currentColourMap = colourMap;
     ColourMapLUT.buildLUT(colourData, this.lut);
+    // Colour map changed — invalidate the legend gradient cache
+    this._legendGradientCmKey = "";
   }
 
   renderFromGrid(gridBuffer, peak, resolutionHint) {
@@ -326,32 +334,55 @@ class Renderer {
     return String(num).split("").map((c) => map[c] || c).join("");
   }
 
+  _buildLegendGradient(x, y1, y2, w, h) {
+    const cmKey    = this.currentColourMap;
+    const alpha    = this._cachedLogAlpha;
+    const needsRebuild =
+      this._legendGradientCmKey !== cmKey ||
+      this._legendGradientAlpha !== alpha ||
+      this._legendGradientH     !== h     ||
+      !this._legendGradientCanvas;
+    if (needsRebuild) {
+      const offscreen = document.createElement("canvas");
+      offscreen.width  = w;
+      offscreen.height = h;
+      const ctx  = offscreen.getContext("2d");
+      const grad = ctx.createLinearGradient(0, 0, 0, h);
+      const stops = 32;
+      for (let i = 0; i <= stops; i++) {
+        const s      = i / stops;
+        const idx    = Math.round((1 - s) * 255) * 3;
+        const safeIdx = Math.min(255 * 3, Math.max(0, idx));
+        grad.addColorStop(
+          s,
+          `rgb(${this.lut[safeIdx]}, ${this.lut[safeIdx + 1]}, ${this.lut[safeIdx + 2]})`,
+        );
+      }
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+      this._legendGradientCanvas = offscreen;
+      this._legendGradientCmKey  = cmKey;
+      this._legendGradientAlpha  = alpha;
+      this._legendGradientH      = h;
+    }
+    drawingContext.drawImage(this._legendGradientCanvas, x - w, y1, w, h);
+  }
+
   renderLegend() {
     push();
     const { colourMap } = this.appcore.params;
     this.updateLUT(colourMap || "rocket");
+    this._prepareLogCache();
     const x  = width - 20;
     const y1 = 34;
     const y2 = height - 20;
     const w  = 15;
     const h  = y2 - y1;
-    const grad  = drawingContext.createLinearGradient(0, y1, 0, y2);
-    const stops = 32;
-    for (let i = 0; i <= stops; i++) {
-      const s      = i / stops;
-      const idx    = Math.round((1 - s) * 255) * 3;
-      const safeIdx = Math.min(255 * 3, Math.max(0, idx));
-      grad.addColorStop(
-        s,
-        `rgb(${this.lut[safeIdx]}, ${this.lut[safeIdx + 1]}, ${this.lut[safeIdx + 2]})`,
-      );
-    }
+    this._buildLegendGradient(x, y1, y2, w, h);
     noStroke();
-    drawingContext.fillStyle = grad;
-    drawingContext.fillRect(x - w, y1, w, h);
-    noFill();
     stroke(255, 255, 255, 200);
     strokeWeight(1.5);
+    noFill();
     rect(x - w, y1, w, h);
     const maxV      = Math.max(Renderer.DENSITY_FLOOR, Number(this.lastLegendPeak) || 0);
     const k         = Math.floor(Math.log10(maxV));
