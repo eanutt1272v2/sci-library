@@ -1,32 +1,39 @@
 class Renderer {
-  static DEFAULT_LOG_ALPHA = 200;
+  static DEFAULT_LOG_ALPHA  = 200;
+  static DENSITY_FLOOR      = 1e-30;
   static NODE_COLOUR_RADIAL  = [214,  39,  40];
   static NODE_COLOUR_ANGULAR = [ 31, 119, 180];
   static NODE_KEY_PANEL_BOTTOM_OFFSET = 78;
+
+  static SUPERSCRIPT_MAP = Object.freeze({
+    0: "\u2070", 1: "\u00b9", 2: "\u00b2", 3: "\u00b3",
+    4: "\u2074", 5: "\u2075", 6: "\u2076", 7: "\u2077",
+    8: "\u2078", 9: "\u2079", "-": "\u207b",
+  });
 
   constructor(appcore) {
     this.appcore = appcore;
     this.buffer  = null;
     this.grid    = new Float32Array(0);
-    this.axisSamples     = new Float32Array(0);
-    this.axisSampleCache = { resolution: 0, viewRadius: 0 };
     this.lut              = new Uint8ClampedArray(256 * 3);
     this.currentColourMap = "";
     this._lastPixelSmoothing = null;
-    this.lastLegendPeak      = 1e-30;
+    this.lastLegendPeak      = Renderer.DENSITY_FLOOR;
     this.lastAMu             = 5.29177210903e-11;
+    this._cachedLogAlpha  = -1;
+    this._cachedLogDenom  = Math.log(1 + Renderer.DEFAULT_LOG_ALPHA);
+    this._screenPoint     = { x: 0, y: 0 };
   }
 
   _createReadbackBuffer(widthPx, heightPx) {
-    const canvasEl = document.createElement("canvas");
-    try {
-      canvasEl.getContext("2d", { willReadFrequently: true });
-    } catch {
-      canvasEl.getContext("2d");
-    }
-    const buffer = createGraphics(widthPx, heightPx, canvasEl);
+    const buffer = createGraphics(widthPx, heightPx);
     if (typeof buffer.pixelDensity === "function") buffer.pixelDensity(1);
     if (typeof buffer.noSmooth     === "function") buffer.noSmooth();
+    try {
+      buffer.elt.getContext("2d", { willReadFrequently: true });
+    } catch (_) {
+      // willReadFrequently hint is advisory; safe to proceed without it
+    }
     return buffer;
   }
 
@@ -42,39 +49,20 @@ class Renderer {
     return Number.isFinite(a) && a > 0 ? a : Renderer.DEFAULT_LOG_ALPHA;
   }
 
-  _logMap(t) {
+  _prepareLogCache() {
     const a = this._getLogAlpha();
-    return Math.log(1 + a * t) / Math.log(1 + a);
+    if (a !== this._cachedLogAlpha) {
+      this._cachedLogAlpha = a;
+      this._cachedLogDenom = Math.log(1 + a);
+    }
+  }
+
+  _logMap(t) {
+    return Math.log(1 + this._cachedLogAlpha * t) / this._cachedLogDenom;
   }
 
   _logMapInverse(u) {
-    const a = this._getLogAlpha();
-    return (Math.exp(u * Math.log(1 + a)) - 1) / a;
-  }
-
-  getAxisSamples(resolution, viewRadius) {
-    const cache = this.axisSampleCache;
-    if (
-      cache.resolution === resolution &&
-      cache.viewRadius  === viewRadius &&
-      this.axisSamples.length === resolution
-    ) {
-      return this.axisSamples;
-    }
-    this.axisSamples = new Float32Array(resolution);
-    if (resolution === 1) {
-      this.axisSamples[0] = 0;
-    } else {
-      const step = (viewRadius * 2) / (resolution - 1);
-      let value  = -viewRadius;
-      for (let i = 0; i < resolution; i++) {
-        this.axisSamples[i] = value;
-        value += step;
-      }
-    }
-    cache.resolution = resolution;
-    cache.viewRadius  = viewRadius;
-    return this.axisSamples;
+    return (Math.exp(u * this._cachedLogDenom) - 1) / this._cachedLogAlpha;
   }
 
   updateLUT(colourMap) {
@@ -83,12 +71,6 @@ class Renderer {
     if (!colourData) return;
     this.currentColourMap = colourMap;
     ColourMapLUT.buildLUT(colourData, this.lut);
-  }
-
-  getSliceAxes(slicePlane) {
-    if (slicePlane === "xy") return { c1: 0, c2: 1, cFixed: 2 };
-    if (slicePlane === "yz") return { c1: 1, c2: 2, cFixed: 0 };
-    return { c1: 0, c2: 2, cFixed: 1 };
   }
 
   renderFromGrid(gridBuffer, peak, resolutionHint) {
@@ -111,16 +93,21 @@ class Renderer {
   renderToBuffer(grid, peak, res, colourMap) {
     const { buffer } = this;
     this.updateLUT(colourMap || "rocket");
-    const peakRef =
+    this._prepareLogCache();
+    const a     = this._cachedLogAlpha;
+    const denom = this._cachedLogDenom;
+    const peakRef = Math.max(
+      Renderer.DENSITY_FLOOR,
       (typeof this.appcore.getNormalisationPeak === "function" &&
         this.appcore.getNormalisationPeak()) ||
-      peak ||
-      1e-30;
-    this.lastLegendPeak = Math.max(1e-30, Number(peakRef) || 0);
+        peak ||
+        Renderer.DENSITY_FLOOR,
+    );
+    this.lastLegendPeak = peakRef;
     buffer.loadPixels();
     for (let i = 0; i < res * res; i++) {
-      const t        = constrain(grid[i] / peakRef, 0, 1);
-      const u        = this._logMap(t);
+      const t        = Math.min(grid[i] / peakRef, 1);
+      const u        = Math.log(1 + a * t) / denom;
       const lutIndex = Math.min(255, Math.max(0, Math.round(u * 255))) * 3;
       const idx      = i * 4;
       buffer.pixels[idx]     = this.lut[lutIndex];
@@ -197,10 +184,9 @@ class Renderer {
     const viewRadius = Math.max(1e-6, Number(params.viewRadius) || 1);
     const centre1    = Number(params.viewCentre?.[axis1]) || 0;
     const centre2    = Number(params.viewCentre?.[axis2]) || 0;
-    return {
-      x: ((axis1Value - centre1 + viewRadius) / (2 * viewRadius)) * width,
-      y: ((axis2Value - centre2 + viewRadius) / (2 * viewRadius)) * height,
-    };
+    this._screenPoint.x = ((axis1Value - centre1 + viewRadius) / (2 * viewRadius)) * width;
+    this._screenPoint.y = ((axis2Value - centre2 + viewRadius) / (2 * viewRadius)) * height;
+    return this._screenPoint;
   }
 
   _renderNodeTypeKey(radialCount, angularCount) {
@@ -243,7 +229,9 @@ class Renderer {
     const angularNodeThetas = overlayData.angularNodeThetas || [];
     const angularNodePhis   = overlayData.angularNodePhis   || [];
     const pixelScale = Math.min(width, height) / (2 * viewRadius);
-    const origin     = this._worldToScreen(0, 0, params, axis1, axis2);
+    const originPt   = this._worldToScreen(0, 0, params, axis1, axis2);
+    const originX    = originPt.x;
+    const originY    = originPt.y;
     const [rR, rG, rB] = Renderer.NODE_COLOUR_RADIAL;
     const [aR, aG, aB] = Renderer.NODE_COLOUR_ANGULAR;
     push();
@@ -256,7 +244,7 @@ class Renderer {
       const inPlaneRadius = Math.sqrt(Math.max(0, radius * radius - fixedCoord * fixedCoord));
       const pxRadius      = inPlaneRadius * pixelScale;
       if (!Number.isFinite(pxRadius) || pxRadius <= 0.6) continue;
-      ellipse(origin.x, origin.y, 2 * pxRadius, 2 * pxRadius);
+      ellipse(originX, originY, 2 * pxRadius, 2 * pxRadius);
     }
     stroke(aR, aG, aB, 255);
     if (params.slicePlane === "xy") {
@@ -266,14 +254,15 @@ class Renderer {
         if (!Number.isFinite(tanTheta)) continue;
         const pxRadius = Math.abs(fixedCoord) * Math.abs(tanTheta) * pixelScale;
         if (!Number.isFinite(pxRadius) || pxRadius <= 0.6) continue;
-        ellipse(origin.x, origin.y, 2 * pxRadius, 2 * pxRadius);
+        ellipse(originX, originY, 2 * pxRadius, 2 * pxRadius);
       }
       for (const phi of angularNodePhis) {
         if (!Number.isFinite(phi)) continue;
         const extent = viewRadius * 1.5;
         const p1 = this._worldToScreen(-extent * Math.cos(phi), -extent * Math.sin(phi), params, axis1, axis2);
+        const x1 = p1.x; const y1 = p1.y;
         const p2 = this._worldToScreen( extent * Math.cos(phi),  extent * Math.sin(phi), params, axis1, axis2);
-        line(p1.x, p1.y, p2.x, p2.y);
+        line(x1, y1, p2.x, p2.y);
       }
     } else {
       const SAMPLES = 160;
@@ -282,7 +271,8 @@ class Renderer {
         const tanTheta = Math.tan(theta);
         if (!Number.isFinite(tanTheta) || Math.abs(tanTheta) < 1e-6) continue;
         for (const sign of [-1, 1]) {
-          let prevPoint = null;
+          beginShape();
+          let inShape = false;
           for (let i = 0; i <= SAMPLES; i++) {
             const axis1Value = centre1 - viewRadius + (i / SAMPLES) * 2 * viewRadius;
             const axis2Value = (sign * Math.sqrt(axis1Value * axis1Value + fixedCoord * fixedCoord)) / tanTheta;
@@ -290,11 +280,15 @@ class Renderer {
               Number.isFinite(axis2Value) &&
               axis2Value >= centre2 - viewRadius &&
               axis2Value <= centre2 + viewRadius;
-            if (!visible) { prevPoint = null; continue; }
-            const current = this._worldToScreen(axis1Value, axis2Value, params, axis1, axis2);
-            if (prevPoint) line(prevPoint.x, prevPoint.y, current.x, current.y);
-            prevPoint = current;
+            if (!visible) {
+              if (inShape) { endShape(); beginShape(); inShape = false; }
+              continue;
+            }
+            const pt = this._worldToScreen(axis1Value, axis2Value, params, axis1, axis2);
+            vertex(pt.x, pt.y);
+            inShape = true;
           }
+          endShape();
         }
       }
       for (const phi of angularNodePhis) {
@@ -305,16 +299,18 @@ class Renderer {
           const xConst = (fixedCoord * Math.cos(phi)) / sinPhi;
           if (xConst < centre1 - viewRadius || xConst > centre1 + viewRadius) continue;
           const p1 = this._worldToScreen(xConst, centre2 - viewRadius, params, axis1, axis2);
+          const x1 = p1.x; const y1 = p1.y;
           const p2 = this._worldToScreen(xConst, centre2 + viewRadius, params, axis1, axis2);
-          line(p1.x, p1.y, p2.x, p2.y);
+          line(x1, y1, p2.x, p2.y);
         } else if (params.slicePlane === "yz") {
           const cosPhi = Math.cos(phi);
           if (Math.abs(cosPhi) < 1e-6) continue;
           const yConst = (fixedCoord * Math.sin(phi)) / cosPhi;
           if (yConst < centre1 - viewRadius || yConst > centre1 + viewRadius) continue;
           const p1 = this._worldToScreen(yConst, centre2 - viewRadius, params, axis1, axis2);
+          const x1 = p1.x; const y1 = p1.y;
           const p2 = this._worldToScreen(yConst, centre2 + viewRadius, params, axis1, axis2);
-          line(p1.x, p1.y, p2.x, p2.y);
+          line(x1, y1, p2.x, p2.y);
         }
       }
     }
@@ -326,11 +322,7 @@ class Renderer {
   }
 
   getSuperscript(num) {
-    const map = {
-      0: "\u2070", 1: "\u00b9", 2: "\u00b2", 3: "\u00b3",
-      4: "\u2074", 5: "\u2075", 6: "\u2076", 7: "\u2077",
-      8: "\u2078", 9: "\u2079", "-": "\u207b",
-    };
+    const map = Renderer.SUPERSCRIPT_MAP;
     return String(num).split("").map((c) => map[c] || c).join("");
   }
 
@@ -361,7 +353,7 @@ class Renderer {
     stroke(255, 255, 255, 200);
     strokeWeight(1.5);
     rect(x - w, y1, w, h);
-    const maxV      = Math.max(1e-30, Number(this.lastLegendPeak) || 0);
+    const maxV      = Math.max(Renderer.DENSITY_FLOOR, Number(this.lastLegendPeak) || 0);
     const k         = Math.floor(Math.log10(maxV));
     const scale     = Math.pow(10, k);
     const scaledMax = maxV / scale;
@@ -380,7 +372,7 @@ class Renderer {
       if (scaledMax - v < 1e-9) continue;
       const tv      = Math.max(0, v);
       const tLinear = tv / scaledMax;
-      const tMapped = this._logMap(constrain(tLinear, 0, 1));
+      const tMapped = this._logMap(Math.min(tLinear, 1));
       labels.push({ val: tv, y: y1 + (1 - tMapped) * h });
     }
     const decimals = step >= 1 ? 1 : step >= 0.1 ? 2 : 3;
@@ -419,7 +411,9 @@ class Renderer {
   _fmtSci(v, digits = 3) {
     if (!Number.isFinite(v)) return "0";
     if (v === 0)              return "0";
-    const [mantissa, exponent] = Number(v).toExponential(digits).split("e");
-    return `${mantissa}e^${Number(exponent)}`;
+    const parts    = Number(v).toExponential(digits).split("e");
+    const mantissa = parts[0];
+    const expStr   = parts[1].replace("+", "");
+    return `${mantissa}e^${Number(expStr)}`;
   }
 }
