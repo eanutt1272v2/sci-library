@@ -125,18 +125,22 @@ class AppCore {
 
   toggleOverlay() {
     this.params.renderOverlay = !this.params.renderOverlay;
+    this.requestRender();
   }
 
   toggleNodeOverlay() {
     this.params.renderNodeOverlay = !this.params.renderNodeOverlay;
+    this.requestRender();
   }
 
   toggleLegend() {
     this.params.renderLegend = !this.params.renderLegend;
+    this.requestRender();
   }
 
   toggleSmoothing() {
     this.params.pixelSmoothing = !this.params.pixelSmoothing;
+    this.requestRender();
   }
 
   toggleGUI() {
@@ -145,6 +149,7 @@ class AppCore {
 
   toggleKeymapRef() {
     this.params.renderKeymapRef = !this.params.renderKeymapRef;
+    this.requestRender();
   }
 
   resetViewRadius() {
