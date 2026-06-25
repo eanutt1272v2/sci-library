@@ -50,7 +50,6 @@ class AppCore {
     };
     this.statistics = {
       fps:           0,
-      density:       0,
       peakDensity:   0,
       mean:          0,
       stdDev:        0,
@@ -61,12 +60,13 @@ class AppCore {
       nodeEstimate:  0,
     };
     this.font = font;
-    this._pendingActions              = [];
-    this._analysisConfig              = { resolution: 384 };
-    this._analysisSignature           = "";
-    this._normalisationPeak           = 1e-30;
+    this._renderQueued               = false;
+    this._analysisConfig             = { resolution: 384 };
+    this._analysisSignature          = "";
+    this._normalisationPeak          = 1e-30;
     this._lastStableNormalisationPeak = 1e-30;
-    this.aMuMeters                    = 5.29177210903e-11;
+    this.aMuMeters                   = 5.29177210903e-11;
+    this._canonicalViewRadiusCache   = { n: -1, l: -1, Z: -1, value: 45 };
     this.analyser = new Analyser(this.statistics);
     this.renderer = new Renderer(this);
     this.media    = new Media(this);
@@ -88,8 +88,9 @@ class AppCore {
 
   render() {
     this.renderer.render();
-    if (this._pendingActions.length > 0) {
-      this._runNextAction();
+    if (this._renderQueued) {
+      this._renderQueued = false;
+      this._requestRenderNow();
     }
   }
 
@@ -268,7 +269,7 @@ class AppCore {
   }
 
   requestRender() {
-    this._queueAction("render", () => this._requestRenderNow());
+    this._renderQueued = true;
   }
 
   _requestRenderNow() {
@@ -281,13 +282,17 @@ class AppCore {
   }
 
   _getCanonicalViewRadius() {
-    const n    = Math.max(1, Number(this.params.n) || 1);
-    const l    = Math.max(0, Number(this.params.l) || 0);
-    const Z    = Math.max(1, Number(this.params.nuclearCharge) || 1);
-    const lHalf  = l + 0.5;
-    const ratio  = lHalf / n;
+    const n = Math.max(1, Number(this.params.n) || 1);
+    const l = Math.max(0, Number(this.params.l) || 0);
+    const Z = Math.max(1, Number(this.params.nuclearCharge) || 1);
+    const cache = this._canonicalViewRadiusCache;
+    if (cache.n === n && cache.l === l && cache.Z === Z) return cache.value;
+    const lHalf      = l + 0.5;
+    const ratio      = lHalf / n;
     const outerRadius = (n * n / Z) * (1 + Math.sqrt(Math.max(0, 1 - ratio * ratio)));
-    return Math.max(8, Math.min(512, outerRadius * 1.15));
+    const value      = Math.max(8, Math.min(512, outerRadius * 1.15));
+    this._canonicalViewRadiusCache = { n, l, Z, value };
+    return value;
   }
 
   _getAnalysisSignature() {
@@ -405,22 +410,6 @@ class AppCore {
     const peak = Number(this._normalisationPeak);
     if (Number.isFinite(peak) && peak > 0) return peak;
     return Math.max(1e-30, Number(this._lastStableNormalisationPeak) || 1e-30);
-  }
-
-  _queueAction(name, handler) {
-    if (!Array.isArray(this._pendingActions)) {
-      this._pendingActions = [];
-    }
-    this._pendingActions = this._pendingActions.filter(
-      (action) => action.name !== name,
-    );
-    this._pendingActions.push({ name, handler });
-  }
-
-  _runNextAction() {
-    const next = this._pendingActions.shift();
-    if (!next || typeof next.handler !== "function") return;
-    next.handler();
   }
 
   _postWorkerMessage(msg, transfers = [], context = "worker request") {
@@ -594,9 +583,6 @@ class AppCore {
   }
 
   refreshGUI() {
-    if (this.gui && typeof this.gui.syncMediaControls === "function") {
-      this.gui.syncMediaControls();
-    }
     if (this.gui && typeof this.gui.refresh === "function") {
       this.gui.refresh();
     }
@@ -614,7 +600,7 @@ class AppCore {
     this._renderPending     = false;
     this._renderRequestId   = 0;
     this._gridRecycleBuffer = null;
-    this._pendingActions    = [];
+    this._renderQueued      = false;
     if (this.media    && typeof this.media.dispose    === "function") this.media.dispose();
     if (this.renderer && typeof this.renderer.dispose === "function") this.renderer.dispose();
     if (this.gui      && typeof this.gui.dispose      === "function") this.gui.dispose();
