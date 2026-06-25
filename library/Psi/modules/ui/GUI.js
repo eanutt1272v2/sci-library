@@ -234,10 +234,6 @@ class GUI {
       })
       .on("change", () => this.appcore.requestRender());
 
-    // Log-gamma normalisation alpha slider, directly beneath the colour map
-    // dropdown.  Larger alpha = more dynamic-range compression; dim lobes are
-    // lifted while bright regions are gently compressed.
-    // Range [1, 2000], step 1; keyboard increments of 10 via [ and ].
     appearance
       .addBinding(this.appcore.params, "logAlpha", {
         label: this.withHint("Log-\u03b3 Alpha \u03b1", "logAlpha", "[/]"),
@@ -277,6 +273,16 @@ class GUI {
     overlay
       .addBinding(this.appcore.params, "renderLegend", {
         label: this.withHint("Toggle Legend", "legend", "L"),
+      })
+      .on("change", () => this.appcore.requestRender());
+
+    overlay
+      .addBinding(this.appcore.params, "renderNodeOverlay", {
+        label: this.withHint(
+          "Toggle Detected Nodes Overlay",
+          "nodeOverlay",
+          "N",
+        ),
       })
       .on("change", () => this.appcore.requestRender());
 
@@ -384,28 +390,11 @@ class GUI {
       })
       .on("change", () => this.appcore.requestRender());
 
-    display
-      .addBinding(params, "renderNodeOverlay", {
-        label: this.withHint(
-          "Toggle Detected Nodes Overlay",
-          "nodeOverlay",
-          "N",
-        ),
-      })
-      .on("change", () => this.appcore.requestRender());
-
     this.addSeparator(page);
 
     const distribution = page.addFolder({
       title: "Distribution",
       expanded: true,
-    });
-
-    distribution.addBinding(statistics, "density", {
-      readonly: true,
-      label: "Density [m\u207b\u00b3]",
-      format: formatSigned,
-      interval: 60,
     });
 
     distribution.addBinding(statistics, "peakDensity", {
@@ -650,7 +639,6 @@ class GUI {
     if (!this._tabsReady || !this.pane) return;
 
     this.syncMassControlFromParams();
-    this.syncMediaControls();
     this.pane.refresh();
   }
 
