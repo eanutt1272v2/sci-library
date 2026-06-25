@@ -14,10 +14,12 @@ class Analyser {
       nodeEstimate: 0,
     };
     this.reset();
+    this._nodeOverlayCache = null;
   }
 
   reset() {
     this.series = [];
+    this._nodeOverlayCache = null;
   }
 
   _refineRootBisection(fn, left, right, iterations = 48) {
@@ -146,11 +148,19 @@ class Analyser {
         : 5.29177210903e-11;
     const a0Meters = 5.29177210903e-11;
     const toA0 = aMuMeters / a0Meters;
-    return {
+
+    const cacheKey = `${n}|${l}|${mAbs}|${z}|${toA0.toPrecision(8)}`;
+    if (this._nodeOverlayCache && this._nodeOverlayCache.key === cacheKey) {
+      return this._nodeOverlayCache.data;
+    }
+
+    const data = {
       radialNodeRadii:   this._collectRadialNodeRadiiA0(n, l, z, toA0),
       angularNodeThetas: this._collectAngularNodeThetas(l, mAbs),
       angularNodePhis:   this._collectAzimuthalNodePhis(mAbs),
     };
+    this._nodeOverlayCache = { key: cacheKey, data };
+    return data;
   }
 
   applyWorkerStatistics(workerStatistics, params) {
@@ -191,7 +201,7 @@ class Analyser {
     ];
     this.series.push(row);
     if (this.series.length > 10000) {
-      this.series.shift();
+      this.series.splice(0, 1);
     }
   }
 
