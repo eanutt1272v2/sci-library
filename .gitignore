@@ -1,5 +1,4 @@
-linux-amd64/
-.vscode/
+TODO.md
 node_modules/
-tests/
-**/todo.md
+.DS_Store
+*.log
