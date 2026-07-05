@@ -1,3 +1,5 @@
+import { QMath } from "../math/QMath.js";
+
 class Analyser {
   constructor(statistics = null) {
     this.series = [];
@@ -239,3 +241,5 @@ class Analyser {
     return row;
   }
 }
+
+export { Analyser };

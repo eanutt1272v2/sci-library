@@ -1,8 +1,12 @@
-(function (global) {
-  "use strict";
+/**
+ * QMath — pure special-function kernels shared by the main-thread Analyser and
+ * the render worker. A real ES module (named `export`), imported directly by
+ * both consumers; the previous `global.QMath = ...` IIFE bridge is gone now that
+ * PsiWorker runs as a module worker and can `import` it.
+ */
 
-  /**
-   * Log-gamma function via the Lanczos approximation.
+/**
+ * Log-gamma function via the Lanczos approximation.
    * Accurate to double precision for z > 0. Uses the reflection
    * formula for z < 0.5 to extend the domain.
    *
@@ -95,9 +99,10 @@
     return Number.isFinite(pmmp1) ? pmmp1 : 0.0;
   }
 
-  global.QMath = Object.freeze({
-    logGamma,
-    genLaguerre,
-    assocLegendre,
-  });
-})(typeof self !== "undefined" ? self : globalThis);
+const QMath = Object.freeze({
+  logGamma,
+  genLaguerre,
+  assocLegendre,
+});
+
+export { QMath };

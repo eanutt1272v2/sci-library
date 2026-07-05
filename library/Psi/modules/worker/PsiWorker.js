@@ -1,34 +1,7 @@
-"use strict";
-
-if (typeof importScripts === "function") {
-  try {
-    importScripts("../../../_shared/utils/WorkerSanitisers.js");
-  } catch (_error) {
-    console.error(
-      "Failed to load WorkerSanitisers.js, using built-in fallback sanitisers. This may cause issues if the main thread is relying on custom sanitisation logic.",
-      _error,
-    );
-  }
-
-  try {
-    importScripts("../math/QMath.js");
-  } catch (_error) {
-    console.error("Failed to load QMath.js.", _error);
-  }
-}
-
-const _workerSanitisers =
-  globalThis.WorkerSanitisers ||
-  Object.freeze({
-    toFiniteNumber(value, fallback = 0) {
-      const numeric = Number(value);
-      return Number.isFinite(numeric) ? numeric : fallback;
-    },
-    toInteger(value, fallback, min, max) {
-      const numeric = Math.round(this.toFiniteNumber(value, fallback));
-      return numeric < min ? min : numeric > max ? max : numeric;
-    },
-  });
+// Module worker: loaded with `{ type: "module" }` and importing its
+// dependencies directly, replacing the previous `importScripts(...)` bridge.
+import { WorkerSanitisers } from "../../../_shared/utils/WorkerSanitisers.js";
+import { QMath } from "../math/QMath.js";
 
 function _toWorkerErrorPayload(stage, error) {
   if (error && typeof error === "object") {
@@ -86,14 +59,10 @@ function clamp(value, min, max) {
   return value;
 }
 
-const toFiniteNumber = _workerSanitisers.toFiniteNumber;
-const toInteger = _workerSanitisers.toInteger;
+const toFiniteNumber = WorkerSanitisers.toFiniteNumber;
+const toInteger = WorkerSanitisers.toInteger;
 
-const { logGamma, genLaguerre, assocLegendre } = globalThis.QMath || {};
-
-if (!logGamma || !genLaguerre || !assocLegendre) {
-  console.error("[PsiWorker] QMath failed to load. Wavefunction evaluation will not work.");
-}
+const { logGamma, genLaguerre, assocLegendre } = QMath;
 
 function sanitiseRenderPayload(data) {
   const n = toInteger(data.n, 1, 1, 12);

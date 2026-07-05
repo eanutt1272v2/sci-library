@@ -1,8 +1,8 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import "../../../../library/Psi/modules/math/QMath.js";
-const { logGamma, genLaguerre, assocLegendre } = globalThis.QMath;
+import { QMath } from "../../../../library/Psi/modules/math/QMath.js";
+const { logGamma, genLaguerre, assocLegendre } = QMath;
 
 describe("QMath.logGamma", () => {
   test("logGamma(1) is 0 (ln Gamma(1) = ln 1! = 0)", () => {
