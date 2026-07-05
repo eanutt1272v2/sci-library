@@ -190,11 +190,13 @@ class KeyboardUtils {
   }
 
   static safeHandle(label, action, handler) {
-    const diagnosticsLogger =
-      typeof AppDiagnostics !== "undefined" &&
-      typeof AppDiagnostics.resolveLogger === "function"
-        ? AppDiagnostics.resolveLogger(label || "Keyboard")
-        : { info() {}, warn() {}, error() {}, debug() {} };
+    const tag = label || "Keyboard";
+    const diagnosticsLogger = {
+      info: (...args) => console.info(`[${tag}]`, ...args),
+      warn: (...args) => console.warn(`[${tag}]`, ...args),
+      error: (...args) => console.error(`[${tag}]`, ...args),
+      debug: (...args) => console.debug(`[${tag}]`, ...args),
+    };
 
     try {
       return handler();
