@@ -33,3 +33,10 @@ class FormatUtils {
     return n.toFixed(digits);
   }
 }
+
+// Stage 1 compatibility bridge: keeps this file working as a classic <script>
+// global for consumers not yet migrated to ES modules. Remove once all
+// consumers import it directly.
+globalThis.FormatUtils = FormatUtils;
+
+export { FormatUtils };
