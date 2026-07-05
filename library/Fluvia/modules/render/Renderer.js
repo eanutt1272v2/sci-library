@@ -1,24 +1,30 @@
-class Renderer {
-  constructor(appcore) {
-    this.appcore = appcore;
-    this._diagnosticsLogger =
-      appcore?._diagnosticsLogger ||
-      (typeof AppDiagnostics !== "undefined" &&
-      typeof AppDiagnostics.resolveLogger === "function"
-        ? AppDiagnostics.resolveLogger("Fluvia")
-        : { info() {}, warn() {}, error() {}, debug() {} });
+import { ColourMapLUT } from "../../../_shared/utils/ColourMapLUT.js";
 
-    this.canvas3D = createGraphics(width, height, WEBGL);
+class Renderer {
+  /**
+   * @param {Object} facade - Narrow render dependencies: `params`, `statistics`,
+   *   `colourMaps`, `metadata`, `shaders`, `refreshGUI`, live `terrain`/`camera`
+   *   getters, and the p5 instance `p`. No AppCore back-reference.
+   */
+  constructor(facade) {
+    this._facade = facade;
+    this.params = facade.params;
+    this.statistics = facade.statistics;
+    this.colourMaps = facade.colourMaps;
+    this.shaders = facade.shaders;
+    this.refreshGUI = facade.refreshGUI;
+    this.p = facade.p;
+
+    const p = this.p;
+
+    this.canvas3D = p.createGraphics(p.width, p.height, p.WEBGL);
     this._warned3DFallback = false;
     this.terrainShader =
       this.canvas3D && typeof this.canvas3D.createShader === "function"
-        ? this.canvas3D.createShader(
-            this.appcore.shaders.vert,
-            this.appcore.shaders.frag,
-          )
+        ? this.canvas3D.createShader(this.shaders.vert, this.shaders.frag)
         : null;
 
-    const { size } = this.appcore.terrain;
+    const { size } = this.terrain;
     this.canvas2D = this._createReadbackBuffer(size, size);
     this.heightMapTexture = this._createReadbackBuffer(size, size);
 
@@ -37,6 +43,23 @@ class Renderer {
     this.keymapSections = KeybindCatalogue.getSections("fluvia");
   }
 
+  get terrain() {
+    return this._facade.terrain;
+  }
+
+  get camera() {
+    return this._facade.camera;
+  }
+
+  // Live, not a snapshot: metadata can be reassigned (not just mutated) by a
+  // params/world JSON import (see MediaCore._applyMetadataSnapshot), and
+  // renderKeymapRef() must reflect that on its next call, matching the
+  // original pre-rewrite code's behaviour of reading the owner's metadata
+  // field live on every call rather than caching it at construction time.
+  get metadata() {
+    return this._facade.metadata;
+  }
+
   _createReadbackBuffer(widthPx, heightPx) {
     const canvasEl = document.createElement("canvas");
     try {
@@ -45,7 +68,7 @@ class Renderer {
       canvasEl.getContext("2d");
     }
 
-    const buffer = createGraphics(widthPx, heightPx, canvasEl);
+    const buffer = this.p.createGraphics(widthPx, heightPx, canvasEl);
     if (typeof buffer.pixelDensity === "function") {
       buffer.pixelDensity(1);
     }
@@ -74,19 +97,20 @@ class Renderer {
   }
 
   _apply3DCamera(eye, up) {
+    const p = this.p;
     const renderer3D = this._getRenderer3D();
     if (!renderer3D) {
       return false;
     }
 
-    const aspect = width / max(1, height);
-    renderer3D.perspective(PI / 3, aspect, 0.1, 30000);
+    const aspect = p.width / p.max(1, p.height);
+    renderer3D.perspective(p.PI / 3, aspect, 0.1, 30000);
     renderer3D.camera(eye.x, eye.y, eye.z, 0, 0, 0, up.x, up.y, up.z);
     return true;
   }
 
   reinitialise() {
-    const { size } = this.appcore.terrain;
+    const { size } = this.terrain;
     if (this.canvas2D && typeof this.canvas2D.remove === "function") {
       this.canvas2D.remove();
     }
@@ -128,7 +152,7 @@ class Renderer {
   updateLUT(colourMap) {
     if (this.currentColourMap === colourMap) return;
 
-    const colourData = this.appcore.colourMaps[colourMap];
+    const colourData = this.colourMaps[colourMap];
     if (!colourData) return;
 
     this.currentColourMap = colourMap;
@@ -136,13 +160,13 @@ class Renderer {
   }
 
   _samplePolyMapColour(mapName, t) {
-    const map = this.appcore.colourMaps?.[mapName];
+    const map = this.colourMaps?.[mapName];
     return ColourMapLUT.sampleColour(map, t);
   }
 
   _sampleDeltaDivergentColour(t) {
     const centre = 236;
-    const a = constrain(t, 0, 1);
+    const a = this.p.constrain(t, 0, 1);
     const distance = Math.abs(a - 0.5) * 2;
 
     let sideColour;
@@ -160,7 +184,10 @@ class Renderer {
   }
 
   generateTextures(is3D) {
-    const { params, terrain, camera } = this.appcore;
+    const p = this.p;
+    const { params } = this;
+    const terrain = this.terrain;
+    const camera = this.camera;
     const {
       surfaceMap,
       lightDir,
@@ -290,7 +317,7 @@ class Renderer {
           if (rawFieldValue > fieldMax) fieldMax = rawFieldValue;
         }
 
-        const lIdx = constrain((v * 255) | 0, 0, 255) * 3;
+        const lIdx = p.constrain((v * 255) | 0, 0, 255) * 3;
         r = this.lut[lIdx];
         g = this.lut[lIdx + 1];
         b = this.lut[lIdx + 2];
@@ -321,7 +348,7 @@ class Renderer {
   }
 
   calculateBounds(mode) {
-    const { terrain } = this.appcore;
+    const terrain = this.terrain;
 
     if (mode === "height") {
       const bounds = terrain.getMapBounds(terrain.heightMap);
@@ -375,39 +402,40 @@ class Renderer {
   }
 
   render() {
-    const terrain = this.appcore.terrain;
+    const p = this.p;
+    const terrain = this.terrain;
     if (
       !terrain ||
       !terrain.heightMap ||
       !terrain.sedimentMap ||
       !terrain.dischargeMap
     ) {
-      if (this.appcore.params.renderMethod === "3D" && this.canvas3D) {
-        image(this.canvas3D, 0, 0, width, height);
+      if (this.params.renderMethod === "3D" && this.canvas3D) {
+        p.image(this.canvas3D, 0, 0, p.width, p.height);
       } else {
-        image(this.canvas2D, 0, 0, width, height);
+        p.image(this.canvas2D, 0, 0, p.width, p.height);
       }
       this.renderOverlay();
       return;
     }
 
-    let is3D = this.appcore.params.renderMethod === "3D";
+    let is3D = this.params.renderMethod === "3D";
     if (is3D && !this._canRender3D()) {
       if (!this._warned3DFallback) {
-        this._diagnosticsLogger.warn(
-          "WebGL graphics API unavailable, falling back to 2D rendering",
+        console.warn(
+          "[Fluvia] WebGL graphics API unavailable, falling back to 2D rendering",
         );
         this._warned3DFallback = true;
       }
-      this.appcore.params.renderMethod = "2D";
-      this.appcore.refreshGUI();
+      this.params.renderMethod = "2D";
+      this.refreshGUI();
       is3D = false;
     }
 
     const nowMs = performance.now();
     const shouldUpdateTexture =
       this.textureDirty ||
-      (this.appcore.params.running &&
+      (this.params.running &&
         nowMs - this.lastTextureUpdateMs >= this.textureUpdateIntervalMs);
 
     if (shouldUpdateTexture) {
@@ -429,17 +457,21 @@ class Renderer {
   }
 
   render2D() {
-    image(this.canvas2D, 0, 0, width, height);
+    const p = this.p;
+    p.image(this.canvas2D, 0, 0, p.width, p.height);
   }
 
   render3D() {
+    const p = this.p;
     const { canvas3D, terrainShader, heightMapTexture, canvas2D } = this;
     if (!this._canRender3D()) {
       this.render2D();
       return;
     }
 
-    const { terrain, params, camera } = this.appcore;
+    const terrain = this.terrain;
+    const params = this.params;
+    const camera = this.camera;
     const eye = camera.getEyePosition();
     const up = camera.getUpVector();
 
@@ -467,17 +499,18 @@ class Renderer {
     canvas3D.plane(pSize, pSize, terrain.size - 1, terrain.size - 1);
     canvas3D.pop();
 
-    image(canvas3D, 0, 0, width, height);
+    p.image(canvas3D, 0, 0, p.width, p.height);
   }
 
   renderOverlay() {
-    if (this.appcore.params.renderStatistics) this.renderStatistics();
-    if (this.appcore.params.renderLegend) this.renderLegend();
-    if (this.appcore.params.renderKeymapRef) this.renderKeymapRef();
+    if (this.params.renderStatistics) this.renderStatistics();
+    if (this.params.renderLegend) this.renderLegend();
+    if (this.params.renderKeymapRef) this.renderKeymapRef();
   }
 
   renderStatistics() {
-    const { statistics, params } = this.appcore;
+    const p = this.p;
+    const { statistics, params } = this;
     const fmt = (value, fixed = 3) => {
       const n = Number(value) || 0;
       const abs = Math.abs(n);
@@ -519,20 +552,22 @@ class Renderer {
       `Erosion Rate=${fmt(statistics.erosionRate, 3)} [volume/s]`,
     ];
 
-    push();
-    textAlign(LEFT, TOP);
-    textSize(12);
-    noStroke();
+    p.push();
+    p.textAlign(p.LEFT, p.TOP);
+    p.textSize(12);
+    p.noStroke();
     const panelX = 20;
     const panelY = 20;
-    fill(255);
-    text(lines.join("\n"), panelX, panelY);
-    pop();
+    p.fill(255);
+    p.text(lines.join("\n"), panelX, panelY);
+    p.pop();
   }
 
   renderLegend() {
-    push();
-    const { surfaceMap, colourMap } = this.appcore.params;
+    const p = this.p;
+    const drawingContext = p.drawingContext;
+    p.push();
+    const { surfaceMap, colourMap } = this.params;
     const legendTitleByMap = {
       composite: "Composite surface blend",
       height: "Terrain elevation",
@@ -544,8 +579,8 @@ class Renderer {
     const legendTitle = legendTitleByMap[surfaceMap] || "Surface field";
 
     if (surfaceMap === "composite") {
-      const params = this.appcore.params;
-      const s = this.appcore.statistics;
+      const params = this.params;
+      const s = this.statistics;
       const metrics = {
         contributionPct: {
           waterColour: Number(s.compositeWaterCoveragePct) || 0,
@@ -566,9 +601,9 @@ class Renderer {
         { l: "Steep", cKey: "steepColour", t: 0.9 },
       ];
 
-      const x = width - 20;
+      const x = p.width - 20;
       const y1 = 20;
-      const y2 = height - 20;
+      const y2 = p.height - 20;
       const w = 15;
       const h = y2 - y1;
 
@@ -592,45 +627,45 @@ class Renderer {
         `rgb(${lastColour.r}, ${lastColour.g}, ${lastColour.b})`,
       );
 
-      noStroke();
+      p.noStroke();
       drawingContext.fillStyle = grad;
       drawingContext.fillRect(x - w, y1, w, h);
 
-      noFill();
-      stroke(255, 255, 255, 200);
-      strokeWeight(1.5);
-      rect(x - w, y1, w, h);
+      p.noFill();
+      p.stroke(255, 255, 255, 200);
+      p.strokeWeight(1.5);
+      p.rect(x - w, y1, w, h);
 
-      fill(255);
-      noStroke();
-      textSize(11);
-      textAlign(RIGHT, CENTER);
+      p.fill(255);
+      p.noStroke();
+      p.textSize(11);
+      p.textAlign(p.RIGHT, p.CENTER);
       anchors.forEach((anchor) => {
         const y = y2 - anchor.t * h;
         const pct = metrics.contributionPct[anchor.cKey] || 0;
-        text(`${anchor.l} ${pct.toFixed(1)}%`, x - w - 6, y);
-        stroke(255, 255, 255, 150);
-        strokeWeight(1);
-        line(x - w - 3, y, x - w, y);
+        p.text(`${anchor.l} ${pct.toFixed(1)}%`, x - w - 6, y);
+        p.stroke(255, 255, 255, 150);
+        p.strokeWeight(1);
+        p.line(x - w - 3, y, x - w, y);
       });
 
-      noStroke();
-      fill(255);
-      push();
-      translate(x + w * 0.5, y1 + h * 0.5);
-      rotate(-HALF_PI);
-      textAlign(CENTER, CENTER);
-      textSize(12);
-      text(legendTitle, 0, 0);
-      pop();
+      p.noStroke();
+      p.fill(255);
+      p.push();
+      p.translate(x + w * 0.5, y1 + h * 0.5);
+      p.rotate(-p.HALF_PI);
+      p.textAlign(p.CENTER, p.CENTER);
+      p.textSize(12);
+      p.text(legendTitle, 0, 0);
+      p.pop();
 
-      pop();
+      p.pop();
       return;
     }
 
-    const x = width - 20;
+    const x = p.width - 20;
     const y1 = 20;
-    const y2 = height - 20;
+    const y2 = p.height - 20;
     const w = 15;
     const h = y2 - y1;
 
@@ -646,19 +681,19 @@ class Renderer {
       );
     }
 
-    noStroke();
+    p.noStroke();
     drawingContext.fillStyle = grad;
     drawingContext.fillRect(x - w, y1, w, h);
 
-    noFill();
-    stroke(255, 255, 255, 200);
-    strokeWeight(1.5);
-    rect(x - w, y1, w, h);
+    p.noFill();
+    p.stroke(255, 255, 255, 200);
+    p.strokeWeight(1.5);
+    p.rect(x - w, y1, w, h);
 
-    fill(255);
-    noStroke();
-    textSize(11);
-    textAlign(RIGHT, CENTER);
+    p.fill(255);
+    p.noStroke();
+    p.textSize(11);
+    p.textAlign(p.RIGHT, p.CENTER);
 
     const b =
       this.lastLegendRange && this.lastLegendRange.map === surfaceMap
@@ -680,33 +715,34 @@ class Renderer {
     ];
 
     labels.forEach((l) => {
-      noStroke();
-      text(l.v.toFixed(3), x - w - 6, l.y);
-      stroke(255, 255, 255, 150);
-      strokeWeight(1);
-      line(x - w - 3, l.y, x - w, l.y);
+      p.noStroke();
+      p.text(l.v.toFixed(3), x - w - 6, l.y);
+      p.stroke(255, 255, 255, 150);
+      p.strokeWeight(1);
+      p.line(x - w - 3, l.y, x - w, l.y);
     });
 
-    noStroke();
-    fill(255);
-    push();
-    translate(x + w * 0.5, y1 + h * 0.5);
-    rotate(-HALF_PI);
-    textAlign(CENTER, CENTER);
-    textSize(12);
-    text(legendTitle, 0, 0);
-    pop();
+    p.noStroke();
+    p.fill(255);
+    p.push();
+    p.translate(x + w * 0.5, y1 + h * 0.5);
+    p.rotate(-p.HALF_PI);
+    p.textAlign(p.CENTER, p.CENTER);
+    p.textSize(12);
+    p.text(legendTitle, 0, 0);
+    p.pop();
 
-    pop();
+    p.pop();
   }
 
   renderKeymapRef() {
-    const { name, version } = this.appcore.metadata;
+    const { name, version } = this.metadata;
     KeymapRenderer.render(name, version, this.keymapSections);
   }
 
   resize() {
-    const s = min(windowWidth, windowHeight);
+    const p = this.p;
+    const s = Math.min(p.windowWidth, p.windowHeight);
     if (this.canvas3D) {
       this.canvas3D.resizeCanvas(s, s);
     }
@@ -732,3 +768,5 @@ class Renderer {
     this.calcPanelImage = null;
   }
 }
+
+export { Renderer };

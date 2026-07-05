@@ -1,19 +1,35 @@
+import { ParamStore } from "../../../_shared/utils/ParamStore.js";
+import { safePostMessage } from "../../../_shared/utils/WorkerMessaging.js";
+import { ColourMapLUT } from "../../../_shared/utils/ColourMapLUT.js";
+import { FLUVIA_SCHEMA } from "./ParamSchema.js";
+import { Terrain } from "../model/Terrain.js";
+import { Camera } from "../render/Camera.js";
+import { Renderer } from "../render/Renderer.js";
+import { Analyser } from "../analysis/Analyser.js";
+import { Media } from "../media/Media.js";
+import { GUI } from "../ui/GUI.js";
+import { InputHandler } from "../input/InputHandler.js";
+
+/**
+ * AppCore owns the parameter store, the compute worker, and every module. It is
+ * the single point where the schema-owned {@link ParamStore} is constructed and
+ * where each module is handed a narrow, purpose-built facade — never a
+ * back-reference to AppCore itself.
+ */
 class AppCore {
   static ALLOWED_TERRAIN_SIZES = Object.freeze([128, 256, 512]);
 
-  constructor(assets) {
+  /**
+   * @param {Object} assets - Loaded startup assets.
+   * @param {Object} p - The p5 instance (instance-mode); threaded to every
+   *   module that draws or reads p5 sketch state.
+   */
+  constructor(assets, p) {
     const { metadata, vertShader, fragShader, colourMaps, font } = assets;
 
+    this.p = p;
     this.metadata = metadata;
-    this._diagnosticsLogger =
-      typeof AppDiagnostics !== "undefined" &&
-      typeof AppDiagnostics.resolveLogger === "function"
-        ? AppDiagnostics.resolveLogger("Fluvia")
-        : { info() {}, warn() {}, error() {}, debug() {} };
-    this.shaders = {
-      vert: vertShader,
-      frag: fragShader,
-    };
+    this.shaders = { vert: vertShader, frag: fragShader };
     this.colourMaps = colourMaps || {};
     this.colourMapKeys = Object.keys(this.colourMaps);
     this.font = font;
@@ -23,59 +39,18 @@ class AppCore {
       this.colourMapKeys = ["greyscale"];
     }
 
-    this.params = {
-      running: true,
-      dropletsPerFrame: 256,
-      maxAge: 500,
-      minVolume: 0.01,
-
-      terrainSize: 256,
-      noiseScale: 0.6,
-      noiseOctaves: 8,
-      amplitudeFalloff: 0.6,
-
-      sedimentErosionRate: 0.1,
-      bedrockErosionRate: 0.1,
-      depositionRate: 0.1,
-      evaporationRate: 0.001,
-      precipitationRate: 1,
-
-      entrainment: 1,
-      gravity: 1,
-      momentumTransfer: 1,
-
-      learningRate: 0.1,
-      maxHeightDiff: 0.01,
-      settlingRate: 0.8,
-
-      renderStatistics: true,
-      renderLegend: true,
-      renderKeymapRef: false,
-
-      renderMethod: "3D",
-      heightScale: 100,
-      surfaceMap: "composite",
-      colourMap: this.colourMapKeys.includes("viridis")
+    // --- Parameter store: the single source of truth for every param ---------
+    this.store = new ParamStore(FLUVIA_SCHEMA, {
+      dynamicOptions: { colourMap: this.colourMapKeys },
+    });
+    this.store.set(
+      "colourMap",
+      this.colourMapKeys.includes("viridis")
         ? "viridis"
         : this.colourMapKeys[0],
+    );
 
-      cameraSmoothing: 0.82,
-      cameraOrbitSensitivity: 0.007,
-      cameraZoomSensitivity: 0.5,
-
-      lightDir: { x: 50, y: 50, z: -50 },
-      specularIntensity: 100,
-
-      skyColour: { r: 173, g: 183, b: 196 },
-      steepColour: { r: 115, g: 115, b: 95 },
-      flatColour: { r: 50, g: 81, b: 33 },
-      sedimentColour: { r: 201, g: 189, b: 117 },
-      waterColour: { r: 92, g: 133, b: 142 },
-
-      imageFormat: "png",
-      recordingFPS: 60,
-      videoBitrateMbps: 8,
-    };
+    this.params = this._buildParamsView();
 
     this.statistics = {
       fps: 0,
@@ -125,6 +100,156 @@ class AppCore {
     this.terrain.generate();
   }
 
+  /**
+   * Build the live `params` view over the store. Schema keys read/write straight
+   * through to the store (which coerces and clamps); the nested `lightDir` group
+   * is exposed as an `{x, y, z}` object via the store's `asObject`, so existing
+   * `params.lightDir.x`-style call sites keep working. Unknown keys surface the
+   * store's `RangeError` rather than silently returning `undefined`.
+   *
+   * @returns {Object} A proxy standing in for the former plain `params` object.
+   */
+  _buildParamsView() {
+    const store = this.store;
+    const views = { lightDir: store.asObject("lightDir", ["x", "y", "z"]) };
+    const ownKeys = [
+      ...Object.keys(FLUVIA_SCHEMA).filter((key) => !key.includes(".")),
+      ...Object.keys(views),
+    ];
+
+    return new Proxy(
+      {},
+      {
+        get(_target, key) {
+          if (typeof key !== "string") return undefined;
+          if (key in views) return views[key];
+          return store.get(key);
+        },
+        set(_target, key, value) {
+          if (key in views) {
+            const source = value && typeof value === "object" ? value : {};
+            for (const leaf of ["x", "y", "z"]) {
+              if (leaf in source) views[key][leaf] = source[leaf];
+            }
+            return true;
+          }
+          store.set(key, value);
+          return true;
+        },
+        has(_target, key) {
+          return ownKeys.includes(key);
+        },
+        ownKeys() {
+          return [...ownKeys];
+        },
+        getOwnPropertyDescriptor(_target, key) {
+          if (ownKeys.includes(key)) {
+            return { configurable: true, enumerable: true, writable: true };
+          }
+          return undefined;
+        },
+      },
+    );
+  }
+
+  initialiseModules() {
+    const p = this.p;
+    const self = this;
+
+    this.terrain = new Terrain(this._terrainFacade());
+    this.camera = new Camera({ params: this.params, p });
+    this.renderer = new Renderer({
+      params: this.params,
+      statistics: this.statistics,
+      colourMaps: this.colourMaps,
+      shaders: this.shaders,
+      refreshGUI: () => this.refreshGUI(),
+      get terrain() {
+        return self.terrain;
+      },
+      get camera() {
+        return self.camera;
+      },
+      get metadata() {
+        return self.metadata;
+      },
+      p,
+    });
+    this.analyser = new Analyser({
+      statistics: this.statistics,
+      params: this.params,
+      get terrain() {
+        return self.terrain;
+      },
+      p,
+    });
+    this.media = new Media(this._mediaFacade());
+    this.gui = new GUI({
+      params: this.params,
+      store: this.store,
+      statistics: this.statistics,
+      colourMaps: this.colourMaps,
+      metadata: this.metadata,
+      media: this.media,
+      generate: () => this.generate(),
+      reset: () => this.reset(),
+    });
+    this.input = new InputHandler({
+      params: this.params,
+      camera: this.camera,
+      media: this.media,
+      gui: this.gui,
+      refreshGUI: () => this.refreshGUI(),
+      generate: () => this.generate(),
+      reset: () => this.reset(),
+      cycleColourMap: (step) => this.cycleColourMap(step),
+      cycleSurfaceMap: (step) => this.cycleSurfaceMap(step),
+      p,
+    });
+
+    this._worker = null;
+    this._workerBusy = false;
+    this._workerRequestId = 0;
+    this._workerStepIntervalMs = 28;
+    this._lastWorkerStepMs = 0;
+    this._pendingActions = [];
+    this._lastVisualSignature = this._computeVisualSignature();
+    this._lastVisualSignatureCheckMs = 0;
+    this._initWorker();
+  }
+
+  _terrainFacade() {
+    return { params: this.params, p: this.p };
+  }
+
+  _mediaFacade() {
+    const self = this;
+    return {
+      params: this.params,
+      statistics: this.statistics,
+      colourMaps: this.colourMaps,
+      p: this.p,
+      get terrain() {
+        return self.terrain;
+      },
+      get metadata() {
+        return self.metadata;
+      },
+      set metadata(value) {
+        self.metadata = value;
+      },
+      refreshGUI: () => self.refreshGUI(),
+      queueAction: (name, handler) => self.queueAction(name, handler),
+      sanitiseParams: () => self.sanitiseParams(),
+      normaliseTerrainSize: (value) => self.normaliseTerrainSize(value),
+      reallocateTerrainBuffers: () => self.reallocateTerrainBuffers(),
+      withWorkerPaused: (fn) => self.withWorkerPaused(fn),
+      resizeTerrain: (size) => self.resizeTerrain(size),
+      reinitialiseAnalyser: () => self.analyser.reinitialise(),
+      reinitialise: () => self.reinitialise(),
+    };
+  }
+
   _clampNumber(value, min, max, fallback = min) {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return fallback;
@@ -133,7 +258,15 @@ class AppCore {
     return numeric;
   }
 
-  _normaliseTerrainSize(value) {
+  /**
+   * Snap an arbitrary terrain dimension to the nearest allowed square size. The
+   * store only clamps `terrainSize` to [128, 512]; the discrete snap that keeps
+   * it at 128/256/512 lives here (imports can carry any size).
+   *
+   * @param {number} value
+   * @returns {number}
+   */
+  normaliseTerrainSize(value) {
     const allowed = AppCore.ALLOWED_TERRAIN_SIZES;
     const numeric = Number(value);
     if (!Number.isFinite(numeric) || numeric <= 0) {
@@ -153,137 +286,24 @@ class AppCore {
     return nearest;
   }
 
-  _sanitiseColour(value, fallback) {
-    const source = value && typeof value === "object" ? value : fallback;
-    return {
-      r: Math.round(this._clampNumber(source.r, 0, 255, fallback.r)),
-      g: Math.round(this._clampNumber(source.g, 0, 255, fallback.g)),
-      b: Math.round(this._clampNumber(source.b, 0, 255, fallback.b)),
-    };
-  }
+  /**
+   * Residual sanitisation the store cannot express: the discrete terrain-size
+   * snap, and a re-coercion of the colour palette (Tweakpane can mutate a colour
+   * object in place, bypassing the store's set-time coercion). Every numeric and
+   * enum range is already enforced by the store on write.
+   */
+  sanitiseParams() {
+    this.params.terrainSize = this.normaliseTerrainSize(this.params.terrainSize);
 
-  _sanitiseToggleParams(p) {
-    p.running = Boolean(p.running);
-    p.renderStatistics = Boolean(p.renderStatistics);
-    p.renderLegend = Boolean(p.renderLegend);
-    p.renderKeymapRef = Boolean(p.renderKeymapRef);
-  }
-
-  _sanitiseSimulationParams(p) {
-    p.terrainSize = this._normaliseTerrainSize(p.terrainSize);
-
-    p.dropletsPerFrame = Math.round(
-      this._clampNumber(p.dropletsPerFrame, 0, 2048, 256),
-    );
-    p.maxAge = Math.round(this._clampNumber(p.maxAge, 8, 2048, 500));
-    p.minVolume = this._clampNumber(p.minVolume, 1e-5, 1, 0.01);
-
-    p.noiseScale = this._clampNumber(p.noiseScale, 0.01, 10, 0.6);
-    p.noiseOctaves = Math.round(this._clampNumber(p.noiseOctaves, 1, 12, 8));
-    p.amplitudeFalloff = this._clampNumber(p.amplitudeFalloff, 0, 1, 0.6);
-
-    p.sedimentErosionRate = this._clampNumber(p.sedimentErosionRate, 0, 1, 0.1);
-    p.bedrockErosionRate = this._clampNumber(p.bedrockErosionRate, 0, 1, 0.1);
-    p.depositionRate = this._clampNumber(p.depositionRate, 0, 1, 0.1);
-    p.evaporationRate = this._clampNumber(p.evaporationRate, 0.0001, 1, 0.001);
-    p.precipitationRate = this._clampNumber(p.precipitationRate, 0, 10, 1);
-
-    p.entrainment = this._clampNumber(p.entrainment, 0, 20, 1);
-    p.gravity = this._clampNumber(p.gravity, 0, 10, 1);
-    p.momentumTransfer = this._clampNumber(p.momentumTransfer, 0, 10, 1);
-
-    p.learningRate = this._clampNumber(p.learningRate, 0, 1, 0.1);
-    p.maxHeightDiff = this._clampNumber(p.maxHeightDiff, 0.0001, 2, 0.01);
-    p.settlingRate = this._clampNumber(p.settlingRate, 0, 1, 0.8);
-  }
-
-  _sanitiseRenderParams(p) {
-    p.renderMethod = p.renderMethod === "2D" ? "2D" : "3D";
-    if (
-      ![
-        "composite",
-        "height",
-        "slope",
-        "discharge",
-        "sediment",
-        "delta",
-      ].includes(p.surfaceMap)
-    ) {
-      p.surfaceMap = "composite";
+    for (const key of [
+      "skyColour",
+      "steepColour",
+      "flatColour",
+      "sedimentColour",
+      "waterColour",
+    ]) {
+      this.store.set(key, this.store.get(key));
     }
-    if (!this.colourMapKeys.includes(p.colourMap)) {
-      p.colourMap = this.colourMapKeys[0];
-    }
-  }
-
-  _sanitiseCameraParams(p) {
-    p.cameraSmoothing = this._clampNumber(p.cameraSmoothing, 0, 0.98, 0.82);
-    p.cameraOrbitSensitivity = this._clampNumber(
-      p.cameraOrbitSensitivity,
-      0.001,
-      0.03,
-      0.007,
-    );
-    p.cameraZoomSensitivity = this._clampNumber(
-      p.cameraZoomSensitivity,
-      0.05,
-      3,
-      0.5,
-    );
-  }
-
-  _sanitiseLightingParams(p) {
-    p.heightScale = this._clampNumber(p.heightScale, 1, 1024, 100);
-    p.lightDir = {
-      x: this._clampNumber(p.lightDir?.x, -1000, 1000, 50),
-      y: this._clampNumber(p.lightDir?.y, -1000, 1000, 50),
-      z: this._clampNumber(p.lightDir?.z, -1000, 1000, -50),
-    };
-    p.specularIntensity = this._clampNumber(p.specularIntensity, 0, 4096, 100);
-  }
-
-  _sanitiseColourParams(p) {
-    p.skyColour = this._sanitiseColour(
-      p.skyColour,
-      this._defaultColourPalette.skyColour,
-    );
-    p.steepColour = this._sanitiseColour(
-      p.steepColour,
-      this._defaultColourPalette.steepColour,
-    );
-    p.flatColour = this._sanitiseColour(
-      p.flatColour,
-      this._defaultColourPalette.flatColour,
-    );
-    p.sedimentColour = this._sanitiseColour(
-      p.sedimentColour,
-      this._defaultColourPalette.sedimentColour,
-    );
-    p.waterColour = this._sanitiseColour(
-      p.waterColour,
-      this._defaultColourPalette.waterColour,
-    );
-  }
-
-  _sanitiseExportParams(p) {
-    const format = String(p.imageFormat || "png").toLowerCase();
-    p.imageFormat = ["png", "jpg", "jpeg", "webp"].includes(format)
-      ? format
-      : "png";
-    p.recordingFPS = Math.round(this._clampNumber(p.recordingFPS, 12, 120, 60));
-    p.videoBitrateMbps = this._clampNumber(p.videoBitrateMbps, 1, 64, 8);
-  }
-
-  _sanitiseParams() {
-    const p = this.params;
-
-    this._sanitiseToggleParams(p);
-    this._sanitiseSimulationParams(p);
-    this._sanitiseRenderParams(p);
-    this._sanitiseCameraParams(p);
-    this._sanitiseLightingParams(p);
-    this._sanitiseColourParams(p);
-    this._sanitiseExportParams(p);
   }
 
   _isValidFloatBuffer(buffer, expectedLength) {
@@ -294,28 +314,8 @@ class AppCore {
   }
 
   _restoreTerrainBuffers() {
-    this._reallocTerrainBuffers();
+    this.reallocateTerrainBuffers();
     this._workerBusy = false;
-  }
-
-  initialiseModules() {
-    this.terrain = new Terrain(this);
-    this.camera = new Camera(this);
-    this.renderer = new Renderer(this);
-    this.analyser = new Analyser(this);
-    this.media = new Media(this);
-    this.gui = new GUI(this);
-    this.input = new InputHandler(this);
-
-    this._worker = null;
-    this._workerBusy = false;
-    this._workerRequestId = 0;
-    this._workerStepIntervalMs = 28;
-    this._lastWorkerStepMs = 0;
-    this._pendingActions = [];
-    this._lastVisualSignature = this._computeVisualSignature();
-    this._lastVisualSignatureCheckMs = 0;
-    this._initWorker();
   }
 
   _computeWorkerStepIntervalMs() {
@@ -350,7 +350,7 @@ class AppCore {
   }
 
   update() {
-    this._sanitiseParams();
+    this.sanitiseParams();
 
     const { camera, params } = this;
 
@@ -375,31 +375,11 @@ class AppCore {
 
   _postWorkerMessage(msg, transfers = [], context = "worker request") {
     if (!this._worker) return false;
-
-    if (
-      typeof AppDiagnostics !== "undefined" &&
-      typeof AppDiagnostics.safePostMessage === "function"
-    ) {
-      return AppDiagnostics.safePostMessage(
-        this._worker,
-        msg,
-        transfers,
-        this._diagnosticsLogger,
-        context,
-      );
-    }
-
-    try {
-      this._worker.postMessage(msg, transfers);
-      return true;
-    } catch (error) {
-      this._diagnosticsLogger.error(`Failed ${context}`, error);
-      return false;
-    }
+    return safePostMessage(this._worker, msg, transfers, context);
   }
 
   _handleWorkerFailure(reason, detail = null) {
-    this._diagnosticsLogger.error(`Worker ${reason}`, detail);
+    console.error(`[Fluvia] Worker ${reason}`, detail);
 
     this._restoreTerrainBuffers();
     this._lastWorkerStepMs = 0;
@@ -407,7 +387,10 @@ class AppCore {
 
   _initWorker() {
     try {
-      this._worker = new Worker("./modules/worker/FluviaWorker.js");
+      this._worker = new Worker(
+        new URL("../worker/FluviaWorker.js", import.meta.url),
+        { type: "module" },
+      );
     } catch (e) {
       throw new Error("[Fluvia] Worker is required but could not be created.");
     }
@@ -426,7 +409,7 @@ class AppCore {
       return;
     }
 
-    this._sanitiseParams();
+    this.sanitiseParams();
 
     const { terrain, params } = this;
 
@@ -547,7 +530,7 @@ class AppCore {
 
     for (const key of requiredBuffers) {
       if (!this._isValidFloatBuffer(data[key], expectedLength)) {
-        this._diagnosticsLogger.error(`Invalid worker payload for ${key}`);
+        console.error(`[Fluvia] Invalid worker payload for ${key}`);
         this._restoreTerrainBuffers();
         return;
       }
@@ -590,7 +573,7 @@ class AppCore {
   }
 
   generate() {
-    this._queueAction("generate", () => this._generateNow());
+    this.queueAction("generate", () => this._generateNow());
   }
 
   _generateNow() {
@@ -601,35 +584,62 @@ class AppCore {
       this._reinitialiseNow();
       return;
     }
-    this._reallocTerrainBuffers();
+    this.reallocateTerrainBuffers();
     terrain.generate();
     this.analyser.reinitialise();
     this._initWorker();
   }
 
   reset() {
-    this._queueAction("reset", () => this._resetNow());
+    this.queueAction("reset", () => this._resetNow());
   }
 
   _resetNow() {
     this._terminateWorker();
-    this._reallocTerrainBuffers();
+    this.reallocateTerrainBuffers();
     this.terrain.reset();
     this.analyser.reinitialise();
     this._initWorker();
   }
 
   reinitialise() {
-    this._queueAction("reinitialise", () => this._reinitialiseNow());
+    this.queueAction("reinitialise", () => this._reinitialiseNow());
   }
 
   _reinitialiseNow() {
     this._terminateWorker();
-    this.terrain = new Terrain(this);
+    this.terrain = new Terrain(this._terrainFacade());
     this.renderer.reinitialise();
     this.terrain.generate();
     this.analyser.reinitialise();
     this._initWorker();
+  }
+
+  /**
+   * Rebuild the terrain for a new size, routing through the store so downstream
+   * modules observe the size change. Used by world import when the incoming size
+   * differs from the current one.
+   *
+   * @param {number} size
+   */
+  resizeTerrain(size) {
+    this.params.terrainSize = size;
+    this.terrain = new Terrain(this._terrainFacade());
+  }
+
+  /**
+   * Run `fn` with the worker torn down and rebuilt around it. Collapses the
+   * always-paired terminate/reinit sequence its callers used to write by hand.
+   *
+   * @param {Function} fn - Work to perform while the worker is stopped.
+   */
+  withWorkerPaused(fn) {
+    this._terminateWorker();
+    try {
+      if (typeof fn === "function") fn();
+    } finally {
+      this._initWorker();
+    }
   }
 
   _terminateWorker() {
@@ -644,7 +654,7 @@ class AppCore {
     this._lastWorkerStepMs = 0;
   }
 
-  _queueAction(name, handler) {
+  queueAction(name, handler) {
     this._pendingActions = this._pendingActions.filter(
       (action) => action.name !== name,
     );
@@ -657,10 +667,10 @@ class AppCore {
     next.handler();
   }
 
-  _reallocTerrainBuffers() {
+  reallocateTerrainBuffers() {
     const { terrain } = this;
     const { area } = terrain;
-    for (const key of terrain._float32Keys) {
+    for (const key of terrain.floatMapKeys) {
       if (!terrain[key]) terrain[key] = new Float32Array(area);
     }
   }
@@ -682,9 +692,10 @@ class AppCore {
   }
 
   resize() {
-    const canvasSize = min(windowWidth, windowHeight);
-    if (width !== canvasSize || height !== canvasSize) {
-      resizeCanvas(canvasSize, canvasSize);
+    const p = this.p;
+    const canvasSize = Math.min(p.windowWidth, p.windowHeight);
+    if (p.width !== canvasSize || p.height !== canvasSize) {
+      p.resizeCanvas(canvasSize, canvasSize);
     }
     this.renderer.resize();
   }
@@ -756,3 +767,5 @@ class AppCore {
     }
   }
 }
+
+export { AppCore };
