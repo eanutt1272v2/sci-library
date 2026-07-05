@@ -1,12 +1,21 @@
 class InputHandler {
-  constructor(appcore) {
-    this.appcore = appcore;
-    this._diagnosticsLogger =
-      appcore?._diagnosticsLogger ||
-      (typeof AppDiagnostics !== "undefined" &&
-      typeof AppDiagnostics.resolveLogger === "function"
-        ? AppDiagnostics.resolveLogger("Psi")
-        : { info() {}, warn() {}, error() {}, debug() {} });
+  /**
+   * @param {Object} facade - InputHandler's view of AppCore: same shape as
+   *   GUI's facade (`store, params, statistics, colourMaps, media, metadata,
+   *   requestRender, syncViewConstraints, resetViewRadius, resetSliceOffset,
+   *   resetViewCentre`) plus `p` (the p5 instance, for pointer/canvas globals)
+   *   and every discrete command method InputHandler dispatches
+   *   (`getPlaneAxes, canvasInteraction, updateQuantumNumbers, adjustLogAlpha,
+   *   changePlane, cycleColourMap, toggleOverlay, toggleNodeOverlay,
+   *   toggleLegend, toggleSmoothing, toggleGUI, toggleKeymapRef, exportImage,
+   *   refreshGUI`).
+   */
+  constructor(facade) {
+    this.facade = facade;
+    this.store = facade.store;
+    this.params = facade.params;
+    this.media = facade.media;
+    this.p = facade.p;
     this.gesture = {
       pan: null,
       pinch: null,
@@ -15,15 +24,13 @@ class InputHandler {
   }
 
   handleContinuousInput() {
-    if (
-      KeyboardUtils.shouldIgnoreKeyboard() ||
-      this.appcore.params.renderKeymapRef
-    ) {
+    const p = this.p;
+    if (KeyboardUtils.shouldIgnoreKeyboard() || this.params.renderKeymapRef) {
       this._heldKeys.clear();
       return;
     }
 
-    const { params } = this.appcore;
+    const { params } = this;
     const shiftHeld = KeyboardUtils.isShiftHeld();
     let needsRender = false;
     let syncViewConstraints = false;
@@ -35,11 +42,11 @@ class InputHandler {
 
     if (leftDown || rightDown) {
       if (shiftHeld) {
-        const step = max(0.25, params.viewRadius * 0.03);
+        const step = p.max(0.25, params.viewRadius * 0.03);
         const delta = rightDown ? step : -step;
         this.panCurrentPlane(delta, 0);
       } else {
-        params.sliceOffset = constrain(
+        params.sliceOffset = p.constrain(
           params.sliceOffset + (rightDown ? 0.5 : -0.5),
           -params.viewRadius,
           params.viewRadius,
@@ -51,7 +58,7 @@ class InputHandler {
 
     if (upDown || downDown) {
       if (shiftHeld) {
-        const step = max(0.25, params.viewRadius * 0.03);
+        const step = p.max(0.25, params.viewRadius * 0.03);
         const delta = upDown ? -step : step;
         this.panCurrentPlane(0, delta);
         needsRender = true;
@@ -74,7 +81,7 @@ class InputHandler {
     if (zoomInDown || zoomOutDown) {
       const delta = (zoomOutDown ? 0.75 : 0) - (zoomInDown ? 0.75 : 0);
       if (delta !== 0) {
-        params.viewRadius = constrain(params.viewRadius + delta, 1, 256);
+        params.viewRadius = p.constrain(params.viewRadius + delta, 1, 256);
         needsRender = true;
         syncViewConstraints = true;
       }
@@ -85,7 +92,7 @@ class InputHandler {
     if (sliceDown || sliceUp) {
       const delta = (sliceUp ? 0.5 : 0) - (sliceDown ? 0.5 : 0);
       if (delta !== 0) {
-        params.sliceOffset = constrain(
+        params.sliceOffset = p.constrain(
           params.sliceOffset + delta,
           -params.viewRadius,
           params.viewRadius,
@@ -95,7 +102,7 @@ class InputHandler {
     }
 
     if (shiftHeld) {
-      const panStep = max(0.25, params.viewRadius * 0.03);
+      const panStep = p.max(0.25, params.viewRadius * 0.03);
       const panX =
         (this._isHintHeld("panX", 1) ? 1 : 0) -
         (this._isHintHeld("panX", 0) ? 1 : 0);
@@ -118,7 +125,7 @@ class InputHandler {
     const isMinus = this._isHintHeld("resolution", 1);
 
     if (isPlus || isMinus) {
-      params.resolution = constrain(
+      params.resolution = p.constrain(
         params.resolution + (isPlus ? 2 : -2),
         64,
         512,
@@ -130,12 +137,12 @@ class InputHandler {
       return;
     }
 
-    this.appcore.refreshGUI();
+    this.facade.refreshGUI();
 
     if (syncViewConstraints) {
-      this.appcore.syncViewConstraints();
+      this.facade.syncViewConstraints();
     } else {
-      this.appcore.requestRender();
+      this.facade.requestRender();
     }
   }
 
@@ -156,11 +163,9 @@ class InputHandler {
       );
 
     if (match("keymapReference")) {
-      this.appcore.toggleKeymapRef();
-      this.appcore.refreshGUI();
-      this._diagnosticsLogger.info(
-        `Keymap Reference: ${this.appcore.params.renderKeymapRef}`,
-      );
+      this.facade.toggleKeymapRef();
+      this.facade.refreshGUI();
+      console.info(`[Psi] Keymap Reference: ${this.params.renderKeymapRef}`);
       return false;
     }
 
@@ -168,46 +173,46 @@ class InputHandler {
       return false;
     }
 
-    if (this.appcore.params.renderKeymapRef) {
+    if (this.params.renderKeymapRef) {
       return false;
     }
 
     if (match("exportImage")) {
-      this.appcore.exportImage();
+      this.facade.exportImage();
       return false;
     }
 
     if (match("record")) {
       try {
-        if (this.appcore.media.isRecording) {
-          this.appcore.media.stopRecording();
+        if (this.media.isRecording) {
+          this.media.stopRecording();
         } else {
-          this.appcore.media.startRecording();
+          this.media.startRecording();
         }
       } catch (error) {
-        this._diagnosticsLogger.error("Recording toggle failed:", error);
+        console.error("[Psi] Recording toggle failed:", error);
       }
-      this.appcore.refreshGUI();
+      this.facade.refreshGUI();
       return false;
     }
 
     if (match("importParams")) {
-      this.appcore.media.importParamsJSON();
+      this.media.importParamsJSON();
       return false;
     }
 
     if (match("exportParams")) {
-      this.appcore.media.exportParamsJSON();
+      this.media.exportParamsJSON();
       return false;
     }
 
     if (match("exportStatistics")) {
-      this.appcore.media.exportStatisticsJSON();
+      this.media.exportStatisticsJSON();
       return false;
     }
 
     if (match("exportStatisticsCsv")) {
-      this.appcore.media.exportStatisticsCSV();
+      this.media.exportStatisticsCSV();
       return false;
     }
 
@@ -215,52 +220,52 @@ class InputHandler {
     let shouldRefreshGUI = true;
 
     if (match("nuclearCharge", 0)) {
-      this.appcore.params.nuclearCharge = Math.max(
+      this.params.nuclearCharge = Math.max(
         1,
-        Math.min(20, Math.round(this.appcore.params.nuclearCharge + 1)),
+        Math.min(20, Math.round(this.params.nuclearCharge + 1)),
       );
-      this.appcore.requestRender();
-      logMsg = `Z changed to ${this.appcore.params.nuclearCharge}`;
+      this.facade.requestRender();
+      logMsg = `Z changed to ${this.params.nuclearCharge}`;
     } else if (match("nuclearCharge", 1)) {
-      this.appcore.params.nuclearCharge = Math.max(
+      this.params.nuclearCharge = Math.max(
         1,
-        Math.min(20, Math.round(this.appcore.params.nuclearCharge - 1)),
+        Math.min(20, Math.round(this.params.nuclearCharge - 1)),
       );
-      this.appcore.requestRender();
-      logMsg = `Z changed to ${this.appcore.params.nuclearCharge}`;
+      this.facade.requestRender();
+      logMsg = `Z changed to ${this.params.nuclearCharge}`;
     } else if (match("reducedMass")) {
-      this.appcore.params.useReducedMass = !this.appcore.params.useReducedMass;
-      this.appcore.requestRender();
-      logMsg = `Reduced mass: ${this.appcore.params.useReducedMass}`;
+      this.params.useReducedMass = !this.params.useReducedMass;
+      this.facade.requestRender();
+      logMsg = `Reduced mass: ${this.params.useReducedMass}`;
     } else if (match("nucleusMass", 0)) {
-      const current = Math.log10(this.appcore.params.nucleusMassKg);
-      const next = constrain(current + 0.01, -30, -24);
-      this.appcore.params.nucleusMassKg = Math.pow(10, next);
-      this.appcore.requestRender();
+      const current = Math.log10(this.params.nucleusMassKg);
+      const next = this.p.constrain(current + 0.01, -30, -24);
+      this.params.nucleusMassKg = Math.pow(10, next);
+      this.facade.requestRender();
       logMsg = `Nucleus mass log10 = ${next.toFixed(2)}`;
     } else if (match("nucleusMass", 1)) {
-      const current = Math.log10(this.appcore.params.nucleusMassKg);
-      const next = constrain(current - 0.01, -30, -24);
-      this.appcore.params.nucleusMassKg = Math.pow(10, next);
-      this.appcore.requestRender();
+      const current = Math.log10(this.params.nucleusMassKg);
+      const next = this.p.constrain(current - 0.01, -30, -24);
+      this.params.nucleusMassKg = Math.pow(10, next);
+      this.facade.requestRender();
       logMsg = `Nucleus mass log10 = ${next.toFixed(2)}`;
     } else if (match("quantumN", 0) || match("quantumN", 1)) {
-      this.appcore.updateQuantumNumbers("n", match("quantumN", 0) ? 1 : -1);
-      logMsg = `n changed to ${this.appcore.params.n}`;
+      this.facade.updateQuantumNumbers("n", match("quantumN", 0) ? 1 : -1);
+      logMsg = `n changed to ${this.params.n}`;
     } else if (match("quantumL", 0) || match("quantumL", 1)) {
-      this.appcore.updateQuantumNumbers("l", match("quantumL", 0) ? 1 : -1);
-      logMsg = `l changed to ${this.appcore.params.l}`;
+      this.facade.updateQuantumNumbers("l", match("quantumL", 0) ? 1 : -1);
+      logMsg = `l changed to ${this.params.l}`;
     } else if (match("quantumM", 0) || match("quantumM", 1)) {
-      this.appcore.updateQuantumNumbers("m", match("quantumM", 0) ? 1 : -1);
-      logMsg = `m changed to ${this.appcore.params.m}`;
+      this.facade.updateQuantumNumbers("m", match("quantumM", 0) ? 1 : -1);
+      logMsg = `m changed to ${this.params.m}`;
     } else if (match("logAlpha", 0)) {
       // ] — increase log-gamma normalisation alpha by 10
-      this.appcore.adjustLogAlpha(10);
-      logMsg = `Log-gamma alpha = ${this.appcore.params.logAlpha}`;
+      this.facade.adjustLogAlpha(10);
+      logMsg = `Log-gamma alpha = ${this.params.logAlpha}`;
     } else if (match("logAlpha", 1)) {
       // [ — decrease log-gamma normalisation alpha by 10
-      this.appcore.adjustLogAlpha(-10);
-      logMsg = `Log-gamma alpha = ${this.appcore.params.logAlpha}`;
+      this.facade.adjustLogAlpha(-10);
+      logMsg = `Log-gamma alpha = ${this.params.logAlpha}`;
     }
 
     const matchedPlane =
@@ -276,47 +281,47 @@ class InputHandler {
         : -1;
     if (matchedPlane >= 0) {
       const planes = ["xy", "xz", "yz"];
-      this.appcore.changePlane(planes[matchedPlane] || "xz");
-      logMsg = `Plane switched to ${this.appcore.params.slicePlane.toUpperCase()}`;
+      this.facade.changePlane(planes[matchedPlane] || "xz");
+      logMsg = `Plane switched to ${this.params.slicePlane.toUpperCase()}`;
     }
 
     if (match("colourMap")) {
-      this.appcore.cycleColourMap();
-      logMsg = `Map switched to ${this.appcore.params.colourMap}`;
+      this.facade.cycleColourMap();
+      logMsg = `Map switched to ${this.params.colourMap}`;
     } else if (match("overlay")) {
-      this.appcore.toggleOverlay();
-      logMsg = `Overlay: ${this.appcore.params.renderOverlay}`;
+      this.facade.toggleOverlay();
+      logMsg = `Overlay: ${this.params.renderOverlay}`;
     } else if (match("nodeOverlay")) {
-      this.appcore.toggleNodeOverlay();
-      logMsg = `Node Overlay: ${this.appcore.params.renderNodeOverlay}`;
+      this.facade.toggleNodeOverlay();
+      logMsg = `Node Overlay: ${this.params.renderNodeOverlay}`;
     } else if (match("legend")) {
-      this.appcore.toggleLegend();
-      logMsg = `Legend: ${this.appcore.params.renderLegend}`;
+      this.facade.toggleLegend();
+      logMsg = `Legend: ${this.params.renderLegend}`;
     } else if (match("smoothing")) {
-      this.appcore.toggleSmoothing();
-      logMsg = `Smoothing: ${this.appcore.params.pixelSmoothing}`;
+      this.facade.toggleSmoothing();
+      logMsg = `Smoothing: ${this.params.pixelSmoothing}`;
     } else if (match("toggleGUI")) {
-      this.appcore.toggleGUI();
+      this.facade.toggleGUI();
       shouldRefreshGUI = false;
     } else if (match("resetViewCentre")) {
-      this.appcore.resetViewCentre();
+      this.facade.resetViewCentre();
       logMsg = "View centre reset";
     } else if (match("resetViewRadius")) {
-      this.appcore.resetViewRadius();
+      this.facade.resetViewRadius();
       logMsg = "View radius reset";
     }
 
     if (match("resetSliceOffset")) {
-      this.appcore.resetSliceOffset();
+      this.facade.resetSliceOffset();
       logMsg = "Offset reset to 0";
     }
 
     if (logMsg) {
-      this._diagnosticsLogger.info(logMsg);
+      console.info(`[Psi] ${logMsg}`);
     }
 
     if (shouldRefreshGUI) {
-      this.appcore.refreshGUI();
+      this.facade.refreshGUI();
     }
 
     return false;
@@ -329,45 +334,47 @@ class InputHandler {
   }
 
   handleWheel(event) {
-    if (!this.appcore.canvasInteraction(event)) {
+    const p = this.p;
+    if (!this.facade.canvasInteraction(event)) {
       return;
     }
 
-    const wheelDelta = constrain(event.delta || 0, -80, 80);
+    const wheelDelta = p.constrain(event.delta || 0, -80, 80);
     const zoomScale = Math.exp(wheelDelta * 0.001);
     if (
       !this.applyZoomAtNormalisedPoint(
-        mouseX / max(1, width),
-        mouseY / max(1, height),
+        p.mouseX / p.max(1, p.width),
+        p.mouseY / p.max(1, p.height),
         zoomScale,
       )
     ) {
       return false;
     }
 
-    this.appcore.syncViewConstraints();
+    this.facade.syncViewConstraints();
     return false;
   }
 
   handlePointer(event) {
-    if (!this.appcore.canvasInteraction(event)) {
+    const p = this.p;
+    if (!this.facade.canvasInteraction(event)) {
       return;
     }
 
-    const touchCount = touches.length;
+    const touchCount = p.touches.length;
 
     if (touchCount === 2) {
-      this.handlePinch(touches[0], touches[1]);
+      this.handlePinch(p.touches[0], p.touches[1]);
       return false;
     }
 
     if (touchCount === 1) {
-      this.handlePan(touches[0]);
+      this.handlePan(p.touches[0]);
       return false;
     }
 
-    if (mouseIsPressed) {
-      this.handlePan({ x: mouseX, y: mouseY });
+    if (p.mouseIsPressed) {
+      this.handlePan({ x: p.mouseX, y: p.mouseY });
       return false;
     }
 
@@ -376,15 +383,16 @@ class InputHandler {
 
   handlePointerEnd(event) {
     const hadActiveGesture = Boolean(this.gesture.pan || this.gesture.pinch);
-    const isCanvasInteraction = this.appcore.canvasInteraction(event);
+    const isCanvasInteraction = this.facade.canvasInteraction(event);
     this.resetGesture();
     if (isCanvasInteraction || hadActiveGesture) {
-      this.appcore.refreshGUI();
+      this.facade.refreshGUI();
       return false;
     }
   }
 
   handlePan(pointer) {
+    const p = this.p;
     if (!this.gesture.pan) {
       this.gesture.pan = { x: pointer.x, y: pointer.y };
       this.gesture.pinch = null;
@@ -393,18 +401,19 @@ class InputHandler {
 
     const dx = pointer.x - this.gesture.pan.x;
     const dy = pointer.y - this.gesture.pan.y;
-    const worldScale = (this.appcore.params.viewRadius * 2) / max(1, width);
+    const worldScale = (this.params.viewRadius * 2) / p.max(1, p.width);
 
     this.panCurrentPlane(-dx * worldScale, -dy * worldScale);
 
     this.gesture.pan.x = pointer.x;
     this.gesture.pan.y = pointer.y;
 
-    this.appcore.requestRender();
+    this.facade.requestRender();
   }
 
   handlePinch(t1, t2) {
-    const distance = dist(t1.x, t1.y, t2.x, t2.y);
+    const p = this.p;
+    const distance = p.dist(t1.x, t1.y, t2.x, t2.y);
     const cx = (t1.x + t2.x) / 2;
     const cy = (t1.y + t2.y) / 2;
 
@@ -417,22 +426,23 @@ class InputHandler {
     const zoomScale = this.gesture.pinch.distance / Math.max(1, distance);
     if (
       this.applyZoomAtNormalisedPoint(
-        cx / max(1, width),
-        cy / max(1, height),
+        cx / p.max(1, p.width),
+        cy / p.max(1, p.height),
         zoomScale,
       )
     ) {
-      this.appcore.syncViewConstraints();
+      this.facade.syncViewConstraints();
     }
 
     this.gesture.pinch.distance = distance;
   }
 
   applyZoomAtNormalisedPoint(nx, ny, zoomScale) {
-    const { params } = this.appcore;
-    const { axis1, axis2 } = this.appcore.getPlaneAxes();
+    const p = this.p;
+    const { params } = this;
+    const { axis1, axis2 } = this.facade.getPlaneAxes();
     const oldRadius = params.viewRadius;
-    const newRadius = constrain(oldRadius * zoomScale, 1, 256);
+    const newRadius = p.constrain(oldRadius * zoomScale, 1, 256);
     if (Math.abs(newRadius - oldRadius) < 1e-6) return false;
 
     const worldX = params.viewCentre[axis1] + (nx * 2 - 1) * oldRadius;
@@ -446,8 +456,8 @@ class InputHandler {
   }
 
   panCurrentPlane(dx, dy) {
-    const { params } = this.appcore;
-    const { axis1, axis2 } = this.appcore.getPlaneAxes();
+    const { params } = this;
+    const { axis1, axis2 } = this.facade.getPlaneAxes();
     params.viewCentre[axis1] += dx;
     params.viewCentre[axis2] += dy;
   }
@@ -477,3 +487,5 @@ class InputHandler {
     }
   }
 }
+
+export { InputHandler };
