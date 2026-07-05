@@ -1,8 +1,8 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import "../../../library/_shared/utils/WorkerSanitisers.js";
-const { clamp, toFiniteNumber, toInteger } = globalThis.WorkerSanitisers;
+import { WorkerSanitisers } from "../../../library/_shared/utils/WorkerSanitisers.js";
+const { clamp, toFiniteNumber, toInteger } = WorkerSanitisers;
 
 describe("WorkerSanitisers.clamp", () => {
   test("value below min clamps to min (boundary inclusive)", () => {
