@@ -9,7 +9,10 @@
       type="text/css"
       href="../_shared/css/style.css"
     />
-    <script src="../_shared/lib/p5.min.js"></script>
+    <script type="module">
+      import p5 from "../_shared/lib/p5.esm.min.js";
+      window.p5 = p5;
+    </script>
     <script type="module">
       import { Pane } from "../_shared/lib/tweakpane.min.js";
       window.Tweakpane = { Pane };
@@ -23,17 +26,7 @@
     <script src="../_shared/utils/KeybindCatalogue.js"></script>
     <script src="../_shared/utils/KeymapRenderer.js"></script>
     <script src="../_shared/utils/MediaCore.js"></script>
-    <script src="./modules/math/QMath.js"></script>
 
-    <script src="./modules/analysis/Analyser.js"></script>
-
-    <script src="./modules/render/Renderer.js"></script>
-    <script src="./modules/media/Media.js"></script>
-
-    <script src="./modules/ui/GUI.js"></script>
-    <script src="./modules/input/InputHandler.js"></script>
-
-    <script src="./modules/core/AppCore.js"></script>
-    <script src="Psi.js"></script>
+    <script type="module" src="Psi.js"></script>
   </body>
 </html>
