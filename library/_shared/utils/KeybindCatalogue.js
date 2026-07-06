@@ -180,65 +180,6 @@ class KeybindCatalogue {
         keymapReference: "#",
       }),
     }),
-    cellular: Object.freeze({
-      sections: Object.freeze([
-        {
-          title: "Simulation",
-          entries: Object.freeze([
-            ["H", "Toggle UI panels"],
-            ["R", "Restart simulation"],
-            ["Enter / P / Space", "Pause or play simulation"],
-            ["#", "Toggle keymap reference"],
-          ]),
-        },
-        {
-          title: "Data",
-          entries: Object.freeze([
-            ["Ctrl+R", "Start / stop recording"],
-            ["Ctrl+S", "Export image"],
-            ["Ctrl+Shift+I / Ctrl+Shift+P", "Import / export params (JSON)"],
-            ["Ctrl+Shift+J / Ctrl+Shift+K", "Export statistics JSON / CSV"],
-            ["Ctrl+Shift+O / Ctrl+Shift+S", "Import / export state (JSON)"],
-          ]),
-        },
-        {
-          title: "Parameters",
-          entries: Object.freeze([
-            ["1 / 2", "Alpha a -/+"],
-            ["3 / 4", "Beta b -/+"],
-            ["5 / 6", "Gamma g -/+"],
-            ["7 / 8", "Radius r -/+"],
-            ["9 / 0", "Trail alpha t -/+"],
-            ["- / =", "Density p -/+"],
-            ["[ / ]", "Particles -/+ (restart to apply)"],
-            ["Hold Shift", "Apply 10x change step"],
-            ["Click value", "Start typing numeric input"],
-            ["Enter / Esc", "Apply / cancel typed input"],
-          ]),
-        },
-      ]),
-      hints: Object.freeze({
-        pause: "Enter/P/Space",
-        restart: "R",
-        toggleUI: "H",
-        alpha: "1/2",
-        beta: "3/4",
-        gamma: "5/6",
-        radius: "7/8",
-        trailAlpha: "9/0",
-        density: "-/=",
-        particleCount: "[/]",
-        paramsImport: "Ctrl+Shift+I",
-        paramsExport: "Ctrl+Shift+P",
-        statisticsExportJson: "Ctrl+Shift+J",
-        statisticsExportCsv: "Ctrl+Shift+K",
-        stateImport: "Ctrl+Shift+O",
-        stateExport: "Ctrl+Shift+S",
-        record: "Ctrl+R",
-        exportImage: "Ctrl+S",
-        keymapReference: "#",
-      }),
-    }),
   });
 
   static _cloneSections(sections) {
