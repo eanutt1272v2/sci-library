@@ -76,17 +76,17 @@ describe("FormatUtils.formatFixed", () => {
     assert.equal(FormatUtils.formatFixed(0.0001), "1.00e^-4");
   });
 
-  // KNOWN BUG (tracked, not fixed in Stage 1): formatFixed uses `Number(value) || 0`
-  // instead of a Number.isFinite guard like its three siblings. NaN happens to fall
-  // through to 0 (NaN is falsy), but Infinity does not (Infinity is truthy), so it
-  // reaches `.toFixed()` and produces the literal string "Infinity" instead of "0.000".
-  // Fixing this is a behavior change deferred to the Stage 2 bug-fix backlog.
-  test("regression: NaN falls through to 0.000 via the `|| 0` fallback", () => {
+  // Fixed: formatFixed used to coerce via `Number(value) || 0`, which let Infinity
+  // (truthy) slip past the fallback and reach `.toFixed()`, producing the literal
+  // string "Infinity" instead of "0.000" — inconsistent with its three siblings,
+  // which all guard on `Number.isFinite`. Now uses the same guard, matching its
+  // own decimal-formatted style ("0.000") rather than the siblings' bare "0".
+  test("NaN falls back to 0.000", () => {
     assert.equal(FormatUtils.formatFixed(NaN), "0.000");
   });
 
-  test("regression: Infinity is truthy so it bypasses the fallback, yielding the literal string Infinity (known bug)", () => {
-    assert.equal(FormatUtils.formatFixed(Infinity), "Infinity");
-    assert.equal(FormatUtils.formatFixed(-Infinity), "-Infinity");
+  test("Infinity and -Infinity fall back to 0.000 instead of the literal string Infinity", () => {
+    assert.equal(FormatUtils.formatFixed(Infinity), "0.000");
+    assert.equal(FormatUtils.formatFixed(-Infinity), "0.000");
   });
 });
