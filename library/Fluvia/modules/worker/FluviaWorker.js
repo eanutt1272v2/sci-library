@@ -1,54 +1,11 @@
 "use strict";
 
 import { WorkerSanitisers } from "../../../_shared/utils/WorkerSanitisers.js";
+import { installWorkerErrorReporter } from "../../../_shared/utils/WorkerErrorReporter.js";
 
 const _workerSanitisers = WorkerSanitisers;
 
-function _toWorkerErrorPayload(stage, error) {
-  if (error && typeof error === "object") {
-    return {
-      type: "workerError",
-      stage,
-      name: String(error.name || "Error"),
-      message: String(error.message || "Worker failure"),
-      stack: String(error.stack || ""),
-    };
-  }
-
-  return {
-    type: "workerError",
-    stage,
-    name: "Error",
-    message: String(error || "Worker failure"),
-    stack: "",
-  };
-}
-
-function _reportWorkerError(stage, error) {
-  const payload = _toWorkerErrorPayload(stage, error);
-  try {
-    self.postMessage(payload);
-  } catch {
-    console.log(
-      "[FluviaWorker] Failed to post error message to main thread. Original error:",
-      payload,
-    );
-  }
-  try {
-    console.error(`[FluviaWorker] ${payload.stage}: ${payload.message}`);
-  } catch {
-    // Ignore logging failures because obviously logging shouldn't cause more errors. If this fails, there's not much we can do about it. It's up to the bloody user to fix their console if it can't handle error messages.
-  }
-}
-
-self.onerror = function (_message, _source, _lineno, _colno, error) {
-  _reportWorkerError("runtime", error || _message);
-  return false;
-};
-
-self.onunhandledrejection = function (event) {
-  _reportWorkerError("unhandledrejection", event?.reason);
-};
+const _reportWorkerError = installWorkerErrorReporter(self, "FluviaWorker");
 
 const SQRT2 = Math.SQRT2;
 const HISTOGRAM_BINS = 256;

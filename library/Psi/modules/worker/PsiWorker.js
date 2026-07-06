@@ -1,51 +1,10 @@
 // Module worker: loaded with `{ type: "module" }` and importing its
 // dependencies directly, replacing the previous `importScripts(...)` bridge.
 import { WorkerSanitisers } from "../../../_shared/utils/WorkerSanitisers.js";
+import { installWorkerErrorReporter } from "../../../_shared/utils/WorkerErrorReporter.js";
 import { QMath } from "../math/QMath.js";
 
-function _toWorkerErrorPayload(stage, error) {
-  if (error && typeof error === "object") {
-    return {
-      type: "workerError",
-      stage,
-      name: String(error.name || "Error"),
-      message: String(error.message || "Worker failure"),
-      stack: String(error.stack || ""),
-    };
-  }
-
-  return {
-    type: "workerError",
-    stage,
-    name: "Error",
-    message: String(error || "Worker failure"),
-    stack: "",
-  };
-}
-
-function _reportWorkerError(stage, error) {
-  const payload = _toWorkerErrorPayload(stage, error);
-  try {
-    self.postMessage(payload);
-  } catch {
-    console.warn(
-      "[PsiWorker] Failed to post error message to main thread. Original error:",
-      payload,
-    );
-  }
-  try {
-    console.error(`[PsiWorker] ${payload.stage}: ${payload.message}`);
-  } catch (_) {}
-}
-
-self.onerror = function (_message, _source, _lineno, _colno, error) {
-  _reportWorkerError("runtime", error || _message);
-  return false;
-};
-
-self.onunhandledrejection = function (event) {
-  _reportWorkerError("unhandledrejection", event?.reason);
-};
+const _reportWorkerError = installWorkerErrorReporter(self, "PsiWorker");
 
 const CONSTS = {
   electronMassKg: 9.1093837015e-31,
