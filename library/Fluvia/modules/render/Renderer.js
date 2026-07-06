@@ -156,12 +156,12 @@ class Renderer {
     if (!colourData) return;
 
     this.currentColourMap = colourMap;
-    ColourMapLUT.buildLUT(colourData, this.lut);
+    ColourMapLUT.buildLUT(this.p, colourData, this.lut);
   }
 
   _samplePolyMapColour(mapName, t) {
     const map = this.colourMaps?.[mapName];
-    return ColourMapLUT.sampleColour(map, t);
+    return ColourMapLUT.sampleColour(this.p, map, t);
   }
 
   _sampleDeltaDivergentColour(t) {

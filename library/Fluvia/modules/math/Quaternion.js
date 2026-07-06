@@ -58,9 +58,4 @@ class Quaternion {
   }
 }
 
-// Stage 1 compatibility bridge: keeps this file working as a classic <script>
-// global for consumers not yet migrated to ES modules. Remove once all
-// consumers import it directly.
-globalThis.Quaternion = Quaternion;
-
 export { Quaternion };

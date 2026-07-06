@@ -109,7 +109,7 @@ class Renderer {
     const colourData = this.colourMaps[colourMap];
     if (!colourData) return;
     this.currentColourMap = colourMap;
-    ColourMapLUT.buildLUT(colourData, this.lut);
+    ColourMapLUT.buildLUT(this.p, colourData, this.lut);
     // Colour map changed — invalidate the legend gradient cache
     this._legendGradientCmKey = "";
   }

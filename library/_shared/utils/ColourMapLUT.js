@@ -5,7 +5,11 @@ class ColourMapLUT {
     b: [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
   };
 
-  static buildLUT(colourMapData, lut, lutPacked, isLittleEndian) {
+  /**
+   * @param {Object} p - p5 instance, for `constrain` (no bare p5 globals —
+   *   instance mode doesn't expose them).
+   */
+  static buildLUT(p, colourMapData, lut, lutPacked, isLittleEndian) {
     if (!colourMapData) return;
 
     const channels = ["r", "g", "b"];
@@ -20,7 +24,7 @@ class ColourMapLUT {
         for (let j = coeffs.length - 1; j >= 0; j--) {
           val = val * t + coeffs[j];
         }
-        lut[idx + c] = constrain(Math.round(val * 255), 0, 255);
+        lut[idx + c] = p.constrain(Math.round(val * 255), 0, 255);
       }
 
       if (lutPacked && isLittleEndian) {
@@ -30,10 +34,13 @@ class ColourMapLUT {
     }
   }
 
-  static sampleColour(colourMapData, t) {
+  /**
+   * @param {Object} p - See {@link ColourMapLUT.buildLUT}.
+   */
+  static sampleColour(p, colourMapData, t) {
     if (!colourMapData) return [255, 255, 255];
 
-    const clamped = constrain(t, 0, 1);
+    const clamped = p.constrain(t, 0, 1);
     const channels = ["r", "g", "b"];
     const out = [0, 0, 0];
 
@@ -43,7 +50,7 @@ class ColourMapLUT {
       for (let j = coeffs.length - 1; j >= 0; j--) {
         val = val * clamped + coeffs[j];
       }
-      out[c] = constrain(Math.round(val * 255), 0, 255);
+      out[c] = p.constrain(Math.round(val * 255), 0, 255);
     }
 
     return out;
@@ -55,10 +62,5 @@ class ColourMapLUT {
     return [lut[idx], lut[idx + 1], lut[idx + 2]];
   }
 }
-
-// Stage 1 compatibility bridge: keeps this file working as a classic <script>
-// global for consumers not yet migrated to ES modules. Remove once all
-// consumers import it directly.
-globalThis.ColourMapLUT = ColourMapLUT;
 
 export { ColourMapLUT };
