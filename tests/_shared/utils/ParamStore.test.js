@@ -214,3 +214,83 @@ describe("ParamStore.asObject", () => {
     assert.equal(view.y, 99);
   });
 });
+
+describe("ParamStore.asProxy", () => {
+  // A schema mixing scalar keys with one nested group's flat dotted keys —
+  // the exact shape both apps hand a proxy over (Psi's viewCentre, Fluvia's
+  // lightDir).
+  function makeProxySchema() {
+    return {
+      resolution: { default: 400, type: "int", min: 64, max: 512 },
+      showAxes: { default: true, type: "bool" },
+      colourMap: { default: "rocket", type: "enum", options: ["rocket", "mako"] },
+      "viewCentre.x": { default: 0, type: "float", min: -100, max: 100 },
+      "viewCentre.y": { default: 0, type: "float", min: -100, max: 100 },
+      "viewCentre.z": { default: 0, type: "float", min: -100, max: 100 },
+    };
+  }
+
+  test("scalar reads/writes pass through to the store with coercion", () => {
+    const store = new ParamStore(makeProxySchema());
+    const params = store.asProxy({ viewCentre: ["x", "y", "z"] });
+    assert.equal(params.resolution, 400);
+    params.resolution = 999; // above max — store clamps
+    assert.equal(params.resolution, 512);
+    assert.equal(store.get("resolution"), 512);
+  });
+
+  test("the nested group reads/writes as one {x,y,z} object over the dotted keys", () => {
+    const store = new ParamStore(makeProxySchema());
+    const params = store.asProxy({ viewCentre: ["x", "y", "z"] });
+    assert.equal(params.viewCentre.x, 0);
+    params.viewCentre.y = 42;
+    assert.equal(store.get("viewCentre.y"), 42);
+    // Whole-object assignment merges only the provided leaves, clamped.
+    params.viewCentre = { x: 5, z: 999 };
+    assert.equal(store.get("viewCentre.x"), 5);
+    assert.equal(store.get("viewCentre.z"), 100); // clamped to max
+    assert.equal(store.get("viewCentre.y"), 42); // untouched
+  });
+
+  test("unknown scalar keys are NOT softened — read and write both throw RangeError", () => {
+    const store = new ParamStore(makeProxySchema());
+    const params = store.asProxy({ viewCentre: ["x", "y", "z"] });
+    assert.throws(() => params.notAParam, RangeError);
+    assert.throws(() => {
+      params.notAParam = 1;
+    }, RangeError);
+  });
+
+  test("symbol keys return undefined so iterator/toPrimitive probes stay inert", () => {
+    const store = new ParamStore(makeProxySchema());
+    const params = store.asProxy({ viewCentre: ["x", "y", "z"] });
+    assert.equal(params[Symbol.iterator], undefined);
+    assert.equal(params[Symbol.toPrimitive], undefined);
+    assert.equal(params[Symbol.toStringTag], undefined);
+  });
+
+  test("ownKeys/has enumerate scalar keys plus the group name, not dotted keys", () => {
+    const store = new ParamStore(makeProxySchema());
+    const params = store.asProxy({ viewCentre: ["x", "y", "z"] });
+    const keys = Object.keys(params);
+    assert.deepEqual(
+      keys.sort(),
+      ["colourMap", "resolution", "showAxes", "viewCentre"].sort(),
+    );
+    assert.ok("resolution" in params);
+    assert.ok("viewCentre" in params);
+    assert.ok(!("viewCentre.x" in params));
+    assert.ok(!("notAParam" in params));
+  });
+
+  test("with no nested groups, it is a flat live view over the scalar keys", () => {
+    const store = new ParamStore({
+      a: { default: 1, type: "int", min: 0, max: 10 },
+      b: { default: true, type: "bool" },
+    });
+    const params = store.asProxy();
+    assert.deepEqual(Object.keys(params).sort(), ["a", "b"]);
+    params.a = 5;
+    assert.equal(store.get("a"), 5);
+  });
+});

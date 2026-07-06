@@ -50,7 +50,7 @@ class AppCore {
         : this.colourMapKeys[0],
     );
 
-    this.params = this._buildParamsView();
+    this.params = this.store.asProxy({ lightDir: ["x", "y", "z"] });
 
     this.statistics = {
       fps: 0,
@@ -90,58 +90,6 @@ class AppCore {
 
     this.initialiseModules();
     this.terrain.generate();
-  }
-
-  /**
-   * Build the live `params` view over the store. Schema keys read/write straight
-   * through to the store (which coerces and clamps); the nested `lightDir` group
-   * is exposed as an `{x, y, z}` object via the store's `asObject`, so existing
-   * `params.lightDir.x`-style call sites keep working. Unknown keys surface the
-   * store's `RangeError` rather than silently returning `undefined`.
-   *
-   * @returns {Object} A proxy standing in for the former plain `params` object.
-   */
-  _buildParamsView() {
-    const store = this.store;
-    const views = { lightDir: store.asObject("lightDir", ["x", "y", "z"]) };
-    const ownKeys = [
-      ...Object.keys(FLUVIA_SCHEMA).filter((key) => !key.includes(".")),
-      ...Object.keys(views),
-    ];
-
-    return new Proxy(
-      {},
-      {
-        get(_target, key) {
-          if (typeof key !== "string") return undefined;
-          if (key in views) return views[key];
-          return store.get(key);
-        },
-        set(_target, key, value) {
-          if (key in views) {
-            const source = value && typeof value === "object" ? value : {};
-            for (const leaf of ["x", "y", "z"]) {
-              if (leaf in source) views[key][leaf] = source[leaf];
-            }
-            return true;
-          }
-          store.set(key, value);
-          return true;
-        },
-        has(_target, key) {
-          return ownKeys.includes(key);
-        },
-        ownKeys() {
-          return [...ownKeys];
-        },
-        getOwnPropertyDescriptor(_target, key) {
-          if (ownKeys.includes(key)) {
-            return { configurable: true, enumerable: true, writable: true };
-          }
-          return undefined;
-        },
-      },
-    );
   }
 
   initialiseModules() {

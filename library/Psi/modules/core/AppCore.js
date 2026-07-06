@@ -40,7 +40,7 @@ class AppCore {
     // Bindable proxy over the store. Tweakpane binds against `params.<key>` and
     // `params.viewCentre.{x,y,z}`; reads/writes route through store.get/set so
     // the store stays the single place any param value changes.
-    this.params = this._buildParamsProxy();
+    this.params = this.store.asProxy({ viewCentre: ["x", "y", "z"] });
 
     // Shared, mutable read-model. `aMuMeters` (reduced Bohr radius from the
     // worker) and `orbitalNotation` (derived n/l/m display string) live here so
@@ -86,62 +86,6 @@ class AppCore {
   // ---------------------------------------------------------------------------
   // Parameter access
   // ---------------------------------------------------------------------------
-
-  /**
-   * Build the live-binding proxy over the store. Scalar params pass straight
-   * through to store.get/set; `viewCentre` is re-exposed as a nested
-   * `{x, y, z}` object (backed by the flat `viewCentre.*` store keys) so binding
-   * targets and JSON import/export see it as one object.
-   *
-   * @returns {Object}
-   */
-  _buildParamsProxy() {
-    const store = this.store;
-    const scalarKeys = Object.keys(PSI_SCHEMA).filter((k) => !k.includes("."));
-    const viewCentre = store.asObject("viewCentre", ["x", "y", "z"]);
-    return new Proxy(
-      {},
-      {
-        get(_t, key) {
-          if (key === "viewCentre") return viewCentre;
-          if (typeof key === "string" && PSI_SCHEMA[key]) return store.get(key);
-          return undefined;
-        },
-        set(_t, key, value) {
-          if (key === "viewCentre") {
-            if (value && typeof value === "object") {
-              if ("x" in value) viewCentre.x = value.x;
-              if ("y" in value) viewCentre.y = value.y;
-              if ("z" in value) viewCentre.z = value.z;
-            }
-            return true;
-          }
-          if (typeof key === "string" && PSI_SCHEMA[key]) {
-            store.set(key, value);
-          }
-          return true;
-        },
-        has(_t, key) {
-          return (
-            key === "viewCentre" ||
-            (typeof key === "string" && Boolean(PSI_SCHEMA[key]))
-          );
-        },
-        ownKeys() {
-          return [...scalarKeys, "viewCentre"];
-        },
-        getOwnPropertyDescriptor(_t, key) {
-          if (
-            key === "viewCentre" ||
-            (typeof key === "string" && PSI_SCHEMA[key])
-          ) {
-            return { configurable: true, enumerable: true, writable: true };
-          }
-          return undefined;
-        },
-      },
-    );
-  }
 
   /**
    * A plain snapshot of every param with `viewCentre` re-nested — handed to the

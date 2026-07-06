@@ -172,6 +172,68 @@ class ParamStore {
   }
 
   /**
+   * Build a live, bindable Proxy standing in for the former plain `params`
+   * object each app used to hand-roll. Scalar keys read/write straight through
+   * to {@link get}/{@link set} (so the store stays the single coercion point);
+   * each named nested group is exposed as an `{leaf: value}` object (backed by
+   * that group's flat dotted keys via {@link asObject}) so `params.group.x`
+   * call sites and JSON import/export see it as one object.
+   *
+   * Unknown keys are not softened — a read or write of a non-schema scalar key
+   * flows into `get`/`set` and raises their `RangeError`, deliberately: a view
+   * that stands in for the store must not silently invent or swallow params.
+   * (Symbol keys return `undefined` so promise/JSON/iterator probes are inert.)
+   *
+   * @param {Object<string, string[]>} [nestedGroups] - Map of group name to its
+   *   leaf names, e.g. `{ viewCentre: ['x', 'y', 'z'] }`. Each group's flat
+   *   dotted keys (`viewCentre.x`, …) must exist in the schema.
+   * @returns {Object} A Proxy over the store.
+   */
+  asProxy(nestedGroups = {}) {
+    const store = this;
+    const views = {};
+    for (const [group, leaves] of Object.entries(nestedGroups)) {
+      views[group] = store.asObject(group, leaves);
+    }
+    const scalarKeys = Object.keys(this._schema).filter((k) => !k.includes("."));
+    const ownKeys = [...scalarKeys, ...Object.keys(views)];
+
+    return new Proxy(
+      {},
+      {
+        get(_target, key) {
+          if (typeof key !== "string") return undefined;
+          if (key in views) return views[key];
+          return store.get(key);
+        },
+        set(_target, key, value) {
+          if (key in views) {
+            const source = value && typeof value === "object" ? value : {};
+            for (const leaf of nestedGroups[key]) {
+              if (leaf in source) views[key][leaf] = source[leaf];
+            }
+            return true;
+          }
+          store.set(key, value);
+          return true;
+        },
+        has(_target, key) {
+          return typeof key === "string" && ownKeys.includes(key);
+        },
+        ownKeys() {
+          return [...ownKeys];
+        },
+        getOwnPropertyDescriptor(_target, key) {
+          if (typeof key === "string" && ownKeys.includes(key)) {
+            return { configurable: true, enumerable: true, writable: true };
+          }
+          return undefined;
+        },
+      },
+    );
+  }
+
+  /**
    * Resolve the valid option list for an enum key: a runtime `dynamicOptions`
    * list for the key overrides the schema's static `options`.
    *
