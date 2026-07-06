@@ -1,10 +1,33 @@
+import { scheduleFrameFriendlyTask } from "../../../_shared/utils/FrameScheduler.js";
+import { FormatUtils } from "../../../_shared/utils/FormatUtils.js";
+import { FLUVIA_SCHEMA } from "../core/ParamSchema.js";
+
 class GUI {
-  constructor(appcore) {
-    this.appcore = appcore;
+  /**
+   * @param {Object} facade - Narrow GUI dependencies: the live `params` view,
+   *   the `store` (for resolving current bounds via `getRange`), `statistics`,
+   *   `metadata`, `colourMaps`, the `media` sibling, and discrete AppCore
+   *   commands (`generate`, `reset`). No AppCore back-reference. Fluvia has no
+   *   render-queue or relative-bound constraint-sync concept (unlike Psi), so
+   *   this facade omits `requestRender`/`syncViewConstraints` — there is
+   *   nothing here to swap them in for. `cycleColourMap`/`cycleSurfaceMap` are
+   *   InputHandler's commands, not GUI's — GUI has no control that invokes
+   *   either.
+   */
+  constructor(facade) {
+    this.params = facade.params;
+    this.store = facade.store;
+    this.statistics = facade.statistics;
+    this.metadata = facade.metadata;
+    this.colourMaps = facade.colourMaps;
+    this.media = facade.media;
+    this.generate = facade.generate;
+    this.reset = facade.reset;
+
     this.recordButton = null;
     this._tabsReady = false;
     this._disposed = false;
-    const { name, version, author } = this.appcore.metadata;
+    const { name, version, author } = this.metadata;
 
     this.pane = new Tweakpane.Pane({
       title: `${name} ${version} by ${author}`,
@@ -18,19 +41,24 @@ class GUI {
       this._tabsReady = true;
     };
 
-    if (
-      typeof AppDiagnostics !== "undefined" &&
-      typeof AppDiagnostics.scheduleFrameFriendlyTask === "function"
-    ) {
-      AppDiagnostics.scheduleFrameFriendlyTask(buildTabs, {
-        logger: this.appcore?._diagnosticsLogger,
-        label: "Fluvia GUI bootstrap",
-        timeoutMs: 240,
-        useIdle: true,
-      });
-    } else {
-      buildTabs();
-    }
+    scheduleFrameFriendlyTask(buildTabs, {
+      label: "Fluvia GUI bootstrap",
+      timeoutMs: 240,
+      useIdle: true,
+    });
+  }
+
+  /**
+   * Resolve the current Tweakpane binding options for a schema-owned key: its
+   * live-resolved bounds (via {@link ParamStore#getRange}) plus its declared
+   * step, so range literals are never hand-copied into a binding call.
+   *
+   * @param {string} key - A key declared in `FLUVIA_SCHEMA`.
+   * @param {Object} [extra] - Additional binding options to merge in/override.
+   * @returns {Object}
+   */
+  bindingOptionsFor(key, extra = {}) {
+    return { ...this.store.getRange(key), step: FLUVIA_SCHEMA[key]?.step, ...extra };
   }
 
   setupTabs() {
@@ -100,7 +128,7 @@ class GUI {
   }
 
   createSimulationTab(page) {
-    const { params, statistics } = this.appcore;
+    const { params, statistics } = this;
 
     const controls = page.addFolder({
       title: "Simulation Controls",
@@ -111,10 +139,10 @@ class GUI {
     });
     controls
       .addButton({ title: this.withHint("Generate Terrain", "generate", "G") })
-      .on("click", () => this.appcore.generate());
+      .on("click", () => this.generate());
     controls
       .addButton({ title: this.withHint("Reset Terrain", "reset", "R") })
-      .on("click", () => this.appcore.reset());
+      .on("click", () => this.reset());
 
     this.addSeparator(page);
 
@@ -141,26 +169,29 @@ class GUI {
       title: "Droplet Settings",
       expanded: true,
     });
-    droplets.addBinding(params, "dropletsPerFrame", {
-      label: this.withHint("Droplets/Frame", "droplets", "I/K"),
-      min: 0,
-      max: 512,
-      step: 1,
-    });
+    droplets.addBinding(
+      params,
+      "dropletsPerFrame",
+      this.bindingOptionsFor("dropletsPerFrame", {
+        label: this.withHint("Droplets/Frame", "droplets", "I/K"),
+      }),
+    );
 
-    droplets.addBinding(params, "maxAge", {
-      label: this.withHint("Max Age", "maxAge", "Ctrl+U/J"),
-      min: 128,
-      max: 512,
-      step: 1,
-    });
+    droplets.addBinding(
+      params,
+      "maxAge",
+      this.bindingOptionsFor("maxAge", {
+        label: this.withHint("Max Age", "maxAge", "Ctrl+U/J"),
+      }),
+    );
 
-    droplets.addBinding(params, "minVolume", {
-      label: this.withHint("Min Volume", "minVolume", "Ctrl+Y/H"),
-      min: 0.001,
-      max: 0.1,
-      step: 0.001,
-    });
+    droplets.addBinding(
+      params,
+      "minVolume",
+      this.bindingOptionsFor("minVolume", {
+        label: this.withHint("Min Volume", "minVolume", "Ctrl+Y/H"),
+      }),
+    );
 
     this.addSeparator(page);
 
@@ -174,18 +205,21 @@ class GUI {
       options: { "128×128": 128, "256×256": 256, "512×512": 512 },
     });
 
-    genFolder.addBinding(params, "noiseScale", {
-      label: this.withHint("Scale", "noiseScale", "Ctrl+[/]"),
-      min: 0.1,
-      max: 5,
-    });
+    genFolder.addBinding(
+      params,
+      "noiseScale",
+      this.bindingOptionsFor("noiseScale", {
+        label: this.withHint("Scale", "noiseScale", "Ctrl+[/]"),
+      }),
+    );
 
-    genFolder.addBinding(params, "noiseOctaves", {
-      label: this.withHint("Octaves", "noiseOctaves", "Ctrl+;/'"),
-      min: 1,
-      max: 12,
-      step: 1,
-    });
+    genFolder.addBinding(
+      params,
+      "noiseOctaves",
+      this.bindingOptionsFor("noiseOctaves", {
+        label: this.withHint("Octaves", "noiseOctaves", "Ctrl+;/'"),
+      }),
+    );
 
     this.addSeparator(page);
 
@@ -203,36 +237,31 @@ class GUI {
   }
 
   createParametersTab(page) {
-    const { params } = this.appcore;
+    const { params } = this;
     const hydraulic = page.addFolder({
       title: "Hydraulic Erosion",
       expanded: true,
     });
 
     const hydraulicSettings = [
-      {
-        key: "sedimentErosionRate",
-        label: "Sediment Erosion",
-        min: 0,
-        max: 0.2,
-      },
-      { key: "bedrockErosionRate", label: "Bedrock Erosion", min: 0, max: 0.2 },
-      { key: "depositionRate", label: "Deposition", min: 0, max: 0.2 },
-      {
-        key: "evaporationRate",
-        label: "Evaporation",
-        min: 0.001,
-        max: 1,
-        step: 0.001,
-      },
-      { key: "precipitationRate", label: "Precipitation", min: 0, max: 5 },
-      { key: "entrainment", label: "Entrainment", min: 0, max: 10 },
-      { key: "gravity", label: "Gravity", min: 0.1, max: 5 },
-      { key: "momentumTransfer", label: "Momentum Transfer", min: 0, max: 4 },
-      { key: "learningRate", label: "Learning Rate", min: 0, max: 0.5 },
+      { key: "sedimentErosionRate", label: "Sediment Erosion" },
+      { key: "bedrockErosionRate", label: "Bedrock Erosion" },
+      { key: "depositionRate", label: "Deposition" },
+      { key: "evaporationRate", label: "Evaporation" },
+      { key: "precipitationRate", label: "Precipitation" },
+      { key: "entrainment", label: "Entrainment" },
+      { key: "gravity", label: "Gravity" },
+      { key: "momentumTransfer", label: "Momentum Transfer" },
+      { key: "learningRate", label: "Learning Rate" },
     ];
 
-    hydraulicSettings.forEach((s) => hydraulic.addBinding(params, s.key, s));
+    hydraulicSettings.forEach((s) =>
+      hydraulic.addBinding(
+        params,
+        s.key,
+        this.bindingOptionsFor(s.key, { label: s.label }),
+      ),
+    );
 
     this.addSeparator(page);
 
@@ -241,21 +270,21 @@ class GUI {
       expanded: true,
     });
 
-    thermal.addBinding(params, "maxHeightDiff", {
-      label: "Max Δ Height",
-      min: 0.01,
-      max: 1,
-    });
+    thermal.addBinding(
+      params,
+      "maxHeightDiff",
+      this.bindingOptionsFor("maxHeightDiff", { label: "Max Δ Height" }),
+    );
 
-    thermal.addBinding(params, "settlingRate", {
-      label: "Settling Rate",
-      min: 0,
-      max: 1,
-    });
+    thermal.addBinding(
+      params,
+      "settlingRate",
+      this.bindingOptionsFor("settlingRate", { label: "Settling Rate" }),
+    );
   }
 
   createRenderTab(page) {
-    const { params, colourMaps } = this.appcore;
+    const { params, colourMaps } = this;
 
     const render = page.addFolder({ title: "Map View", expanded: true });
 
@@ -287,34 +316,37 @@ class GUI {
       label: this.withHint("Selected Colour Map", "colourMap", "C"),
     });
 
-    render.addBinding(params, "heightScale", {
-      label: this.withHint("Height Scale", "heightScale", "[/]"),
-      min: 1,
-      max: 256,
-    });
+    render.addBinding(
+      params,
+      "heightScale",
+      this.bindingOptionsFor("heightScale", {
+        label: this.withHint("Height Scale", "heightScale", "[/]"),
+      }),
+    );
 
     const camera = page.addFolder({ title: "Camera", expanded: true });
 
-    camera.addBinding(params, "cameraSmoothing", {
-      label: "Motion Smoothing",
-      min: 0,
-      max: 0.98,
-      step: 0.01,
-    });
+    camera.addBinding(
+      params,
+      "cameraSmoothing",
+      this.bindingOptionsFor("cameraSmoothing", { label: "Motion Smoothing" }),
+    );
 
-    camera.addBinding(params, "cameraOrbitSensitivity", {
-      label: "Orbit Sensitivity",
-      min: 0.001,
-      max: 0.03,
-      step: 0.0005,
-    });
+    camera.addBinding(
+      params,
+      "cameraOrbitSensitivity",
+      this.bindingOptionsFor("cameraOrbitSensitivity", {
+        label: "Orbit Sensitivity",
+      }),
+    );
 
-    camera.addBinding(params, "cameraZoomSensitivity", {
-      label: "Zoom Sensitivity",
-      min: 0.05,
-      max: 3,
-      step: 0.05,
-    });
+    camera.addBinding(
+      params,
+      "cameraZoomSensitivity",
+      this.bindingOptionsFor("cameraZoomSensitivity", {
+        label: "Zoom Sensitivity",
+      }),
+    );
 
     this.addSeparator(page);
 
@@ -333,20 +365,22 @@ class GUI {
 
     light.addBinding(params, "lightDir", {
       label: "Direction",
-      x: { min: -100, max: 100 },
-      y: { min: -100, max: 100 },
-      z: { min: -100, max: 100 },
+      x: this.store.getRange("lightDir.x"),
+      y: this.store.getRange("lightDir.y"),
+      z: this.store.getRange("lightDir.z"),
     });
 
-    light.addBinding(params, "specularIntensity", {
-      label: this.withHint(
-        "Specular Intensity",
-        "specularIntensity",
-        "Ctrl+,/.",
-      ),
-      min: 0.01,
-      max: 1024,
-    });
+    light.addBinding(
+      params,
+      "specularIntensity",
+      this.bindingOptionsFor("specularIntensity", {
+        label: this.withHint(
+          "Specular Intensity",
+          "specularIntensity",
+          "Ctrl+,/.",
+        ),
+      }),
+    );
 
     this.addSeparator(page);
 
@@ -360,7 +394,7 @@ class GUI {
   }
 
   createStatisticsTab(page) {
-    const { statistics, params } = this.appcore;
+    const { statistics, params } = this;
     const fmt = FormatUtils.formatFixed;
     const fmtInt = FormatUtils.formatInt;
 
@@ -634,7 +668,7 @@ class GUI {
   }
 
   createMediaTab(page) {
-    const { media, params } = this.appcore;
+    const { media, params } = this;
 
     const imp = page.addFolder({ title: "Import Data" });
     imp
@@ -704,19 +738,19 @@ class GUI {
 
     const capture = exp.addFolder({ title: "Media Capture" });
 
-    capture.addBinding(params, "recordingFPS", {
-      label: "Recording FPS [Hz]",
-      min: 12,
-      max: 120,
-      step: 1,
-    });
+    capture.addBinding(
+      params,
+      "recordingFPS",
+      this.bindingOptionsFor("recordingFPS", { label: "Recording FPS [Hz]" }),
+    );
 
-    capture.addBinding(params, "videoBitrateMbps", {
-      label: "Video Bitrate [Mbps]",
-      min: 1,
-      max: 64,
-      step: 0.5,
-    });
+    capture.addBinding(
+      params,
+      "videoBitrateMbps",
+      this.bindingOptionsFor("videoBitrateMbps", {
+        label: "Video Bitrate [Mbps]",
+      }),
+    );
 
     const btn = capture.addButton({
       title: media.isRecording
@@ -751,7 +785,7 @@ class GUI {
 
   syncMediaControls() {
     if (this.recordButton) {
-      this.recordButton.title = this.appcore.media.isRecording
+      this.recordButton.title = this.media.isRecording
         ? this.withHint("⏹ Stop Recording", "record", "Ctrl+R")
         : this.withHint("⏺ Start Recording", "record", "Ctrl+R");
     }
@@ -768,3 +802,5 @@ class GUI {
     this.pane = null;
   }
 }
+
+export { GUI };

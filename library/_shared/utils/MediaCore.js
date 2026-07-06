@@ -6,11 +6,12 @@ class MediaCore {
       .replace(/\]\[/g, ":")
       .replace(/[\[\]]/g, "")
       .trim();
-    this._diagnosticsLogger =
-      typeof AppDiagnostics !== "undefined" &&
-      typeof AppDiagnostics.resolveLogger === "function"
-        ? AppDiagnostics.resolveLogger(loggerTag || "Media")
-        : { info() {}, warn() {}, error() {}, debug() {} };
+    this._diagnosticsLogger = {
+      info: (...args) => console.info(`[${loggerTag || "Media"}]`, ...args),
+      warn: (...args) => console.warn(`[${loggerTag || "Media"}]`, ...args),
+      error: (...args) => console.error(`[${loggerTag || "Media"}]`, ...args),
+      debug: (...args) => console.debug(`[${loggerTag || "Media"}]`, ...args),
+    };
     this.maxJSONImportBytes = 32 * 1024 * 1024;
     this.mediaRecorder = null;
     this.recordingStream = null;

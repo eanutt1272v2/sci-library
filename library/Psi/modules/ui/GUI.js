@@ -1,6 +1,20 @@
+import { scheduleFrameFriendlyTask } from "../../../_shared/utils/FrameScheduler.js";
+import { FormatUtils } from "../../../_shared/utils/FormatUtils.js";
+import { PSI_SCHEMA } from "../core/ParamSchema.js";
+
 class GUI {
-  constructor(appcore) {
-    this.appcore = appcore;
+  /**
+   * @param {Object} facade - GUI's view of AppCore: `{store, params, statistics,
+   *   colourMaps, media, metadata, requestRender, syncViewConstraints,
+   *   resetViewRadius, resetSliceOffset, resetViewCentre}`.
+   */
+  constructor(facade) {
+    this.facade = facade;
+    this.store = facade.store;
+    this.params = facade.params;
+    this.statistics = facade.statistics;
+    this.colourMaps = facade.colourMaps;
+    this.media = facade.media;
 
     this.bindings = {};
     this.massControl = { nucleusMassLog10: -27 };
@@ -8,7 +22,7 @@ class GUI {
     this._tabsReady = false;
     this._disposed = false;
     this.pane = new Tweakpane.Pane({
-      title: `${this.appcore.metadata.name} ${this.appcore.metadata.version} by ${this.appcore.metadata.author}`,
+      title: `${facade.metadata.name} ${facade.metadata.version} by ${facade.metadata.author}`,
       expanded: true,
     });
 
@@ -19,19 +33,31 @@ class GUI {
       this.setupTabs();
     };
 
-    if (
-      typeof AppDiagnostics !== "undefined" &&
-      typeof AppDiagnostics.scheduleFrameFriendlyTask === "function"
-    ) {
-      AppDiagnostics.scheduleFrameFriendlyTask(buildTabs, {
-        logger: this.appcore?._diagnosticsLogger,
-        label: "Psi GUI bootstrap",
-        timeoutMs: 240,
-        useIdle: true,
-      });
-    } else {
-      buildTabs();
-    }
+    scheduleFrameFriendlyTask(buildTabs, {
+      label: "Psi GUI bootstrap",
+      timeoutMs: 240,
+      useIdle: true,
+    });
+  }
+
+  /**
+   * Slider binding options for a numeric schema key: the store's live-resolved
+   * range plus the schema's `step`, merged with any per-call extras (label,
+   * format). This is the single place a slider's bounds come from — no hardcoded
+   * numeric literals in the `addBinding` calls.
+   *
+   * @param {string} key
+   * @param {Object} [extra]
+   * @returns {Object}
+   */
+  bindingOptionsFor(key, extra = {}) {
+    const range = this.store.getRange(key);
+    const options = { ...extra };
+    if (typeof range.min === "number") options.min = range.min;
+    if (typeof range.max === "number") options.max = range.max;
+    const step = PSI_SCHEMA[key] && PSI_SCHEMA[key].step;
+    if (typeof step === "number") options.step = step;
+    return options;
   }
 
   setupTabs() {
@@ -71,23 +97,8 @@ class GUI {
     if (l < base.length) return base[l];
 
     const extended = [
-      "g",
-      "h",
-      "i",
-      "k",
-      "l",
-      "m",
-      "n",
-      "o",
-      "q",
-      "r",
-      "t",
-      "u",
-      "v",
-      "w",
-      "x",
-      "y",
-      "z",
+      "g", "h", "i", "k", "l", "m", "n", "o", "q",
+      "r", "t", "u", "v", "w", "x", "y", "z",
     ];
     const offset = l - base.length;
     if (offset < extended.length) return extended[offset];
@@ -101,7 +112,7 @@ class GUI {
       expanded: true,
     });
 
-    perf.addBinding(this.appcore.statistics, "fps", {
+    perf.addBinding(this.statistics, "fps", {
       readonly: true,
       label: "FPS [Hz]",
       view: "graph",
@@ -128,63 +139,70 @@ class GUI {
   createParametersTab(page) {
     const quantum = page.addFolder({ title: "Quantum State", expanded: true });
 
-    quantum.addBinding(this.appcore.params, "orbitalNotation", {
+    quantum.addBinding(this.statistics, "orbitalNotation", {
       label: "Orbital Notation",
       readonly: true,
     });
 
-    this.bindings.n = quantum.addBinding(this.appcore.params, "n", {
-      label: this.withHint("Principal n", "quantumN", "W/S"),
-      min: AppCore.QUANTUM_LIMITS.minN,
-      max: AppCore.QUANTUM_LIMITS.maxN,
-      step: 1,
-    });
+    this.bindings.n = quantum.addBinding(
+      this.params,
+      "n",
+      this.bindingOptionsFor("n", {
+        label: this.withHint("Principal n", "quantumN", "W/S"),
+      }),
+    );
 
-    this.bindings.l = quantum.addBinding(this.appcore.params, "l", {
-      label: this.withHint("Angular l", "quantumL", "D/A"),
-      min: 0,
-      max: 0,
-      step: 1,
-    });
+    this.bindings.l = quantum.addBinding(
+      this.params,
+      "l",
+      this.bindingOptionsFor("l", {
+        label: this.withHint("Angular l", "quantumL", "D/A"),
+      }),
+    );
 
-    this.bindings.m = quantum.addBinding(this.appcore.params, "m", {
-      label: this.withHint("Magnetic m", "quantumM", "E/Q"),
-      min: 0,
-      max: 0,
-      step: 1,
-    });
+    this.bindings.m = quantum.addBinding(
+      this.params,
+      "m",
+      this.bindingOptionsFor("m", {
+        label: this.withHint("Magnetic m", "quantumM", "E/Q"),
+      }),
+    );
 
     this.bindings.nuclearCharge = quantum
-      .addBinding(this.appcore.params, "nuclearCharge", {
-        label: this.withHint("Nuclear Charge Z", "nuclearCharge", "R/T"),
-        min: 1,
-        max: 20,
-        step: 1,
-        format: (v) =>
-          String(Math.max(1, Math.min(20, Math.round(Number(v) || 1)))),
-      })
+      .addBinding(
+        this.params,
+        "nuclearCharge",
+        this.bindingOptionsFor("nuclearCharge", {
+          label: this.withHint("Nuclear Charge Z", "nuclearCharge", "R/T"),
+          format: (v) => {
+            const { min, max } = this.store.getRange("nuclearCharge");
+            return String(Math.max(min, Math.min(max, Math.round(Number(v) || min))));
+          },
+        }),
+      )
       .on("change", (ev) => {
-        const z = Math.max(1, Math.min(20, Math.round(Number(ev.value) || 1)));
-        if (this.appcore.params.nuclearCharge !== z) {
-          this.appcore.params.nuclearCharge = z;
+        const { min, max } = this.store.getRange("nuclearCharge");
+        const z = Math.max(min, Math.min(max, Math.round(Number(ev.value) || min)));
+        if (this.params.nuclearCharge !== z) {
+          this.params.nuclearCharge = z;
           this.pane.refresh();
         }
-        this.appcore.requestRender();
+        this.facade.requestRender();
       });
 
     quantum
-      .addBinding(this.appcore.params, "useReducedMass", {
+      .addBinding(this.params, "useReducedMass", {
         label: this.withHint("Toggle Reduced Mass", "reducedMass", "P"),
       })
       .on("change", () => {
-        this.appcore.requestRender();
+        this.facade.requestRender();
       });
 
     this.syncMassControlFromParams();
 
     this.bindings.nucleusMassLog10 = quantum
       .addBinding(this.massControl, "nucleusMassLog10", {
-        label: this.withHint("log\u2081\u2080 Nucleus Mass", "nucleusMass", "G/B"),
+        label: this.withHint("log₁₀ Nucleus Mass", "nucleusMass", "G/B"),
         min: -30,
         max: -24,
         step: 0.01,
@@ -194,11 +212,11 @@ class GUI {
         const value = Number(ev.value);
         if (!Number.isFinite(value)) return;
 
-        this.appcore.params.nucleusMassKg = Math.pow(10, value);
-        this.appcore.requestRender();
+        this.params.nucleusMassKg = Math.pow(10, value);
+        this.facade.requestRender();
       });
 
-    quantum.addBinding(this.appcore.params, "nucleusMassKg", {
+    quantum.addBinding(this.params, "nucleusMassKg", {
       label: "Nucleus Mass [kg]",
       readonly: true,
       format: (v) => {
@@ -215,53 +233,52 @@ class GUI {
   }
 
   createRenderTab(page) {
-    const colourMapOptions = Object.keys(this.appcore.colourMaps).reduce(
-      (obj, name) => {
-        const entry = this.appcore.colourMaps[name] || {};
-        const type = entry.type || "sequential";
-        obj[`${name} (${type})`] = name;
-        return obj;
-      },
-      {},
-    );
+    const colourMapOptions = Object.keys(this.colourMaps).reduce((obj, name) => {
+      const entry = this.colourMaps[name] || {};
+      const type = entry.type || "sequential";
+      obj[`${name} (${type})`] = name;
+      return obj;
+    }, {});
 
     const appearance = page.addFolder({ title: "Appearance", expanded: true });
 
     appearance
-      .addBinding(this.appcore.params, "colourMap", {
+      .addBinding(this.params, "colourMap", {
         label: this.withHint("Selected Colour Map", "colourMap", "C"),
         options: colourMapOptions,
       })
-      .on("change", () => this.appcore.requestRender());
+      .on("change", () => this.facade.requestRender());
 
     appearance
-      .addBinding(this.appcore.params, "logAlpha", {
-        label: this.withHint("Log-\u03b3 Alpha \u03b1", "logAlpha", "[/]"),
-        min: 1,
-        max: 2000,
-        step: 1,
-        format: (v) => Number(v).toFixed(0),
-      })
-      .on("change", () => this.appcore.requestRender());
+      .addBinding(
+        this.params,
+        "logAlpha",
+        this.bindingOptionsFor("logAlpha", {
+          label: this.withHint("Log-γ Alpha α", "logAlpha", "[/]"),
+          format: (v) => Number(v).toFixed(0),
+        }),
+      )
+      .on("change", () => this.facade.requestRender());
 
     this.addSeparator(page);
 
     const quality = page.addFolder({ title: "Sampling", expanded: true });
 
     quality
-      .addBinding(this.appcore.params, "resolution", {
-        label: this.withHint("Resolution", "resolution", "+/-"),
-        min: 64,
-        max: 512,
-        step: 2,
-      })
-      .on("change", () => this.appcore.requestRender());
+      .addBinding(
+        this.params,
+        "resolution",
+        this.bindingOptionsFor("resolution", {
+          label: this.withHint("Resolution", "resolution", "+/-"),
+        }),
+      )
+      .on("change", () => this.facade.requestRender());
 
     quality
-      .addBinding(this.appcore.params, "pixelSmoothing", {
+      .addBinding(this.params, "pixelSmoothing", {
         label: this.withHint("Smoothing", "smoothing", "M"),
       })
-      .on("change", () => this.appcore.requestRender());
+      .on("change", () => this.facade.requestRender());
 
     this.addSeparator(page);
 
@@ -271,43 +288,37 @@ class GUI {
     });
 
     overlay
-      .addBinding(this.appcore.params, "renderLegend", {
+      .addBinding(this.params, "renderLegend", {
         label: this.withHint("Toggle Legend", "legend", "L"),
       })
-      .on("change", () => this.appcore.requestRender());
+      .on("change", () => this.facade.requestRender());
 
     overlay
-      .addBinding(this.appcore.params, "renderNodeOverlay", {
-        label: this.withHint(
-          "Toggle Detected Nodes Overlay",
-          "nodeOverlay",
-          "N",
-        ),
+      .addBinding(this.params, "renderNodeOverlay", {
+        label: this.withHint("Toggle Detected Nodes Overlay", "nodeOverlay", "N"),
       })
-      .on("change", () => this.appcore.requestRender());
+      .on("change", () => this.facade.requestRender());
 
     this.addSeparator(page);
 
     const slice = page.addFolder({ title: "Slice View", expanded: true });
 
     this.bindings.viewRadius = slice.addBinding(
-      this.appcore.params,
+      this.params,
       "viewRadius",
-      {
-        label: this.withHint("View Radius [a\u2080]", "viewRadius", "I/K"),
-        min: 1,
-        max: 256,
-      },
+      this.bindingOptionsFor("viewRadius", {
+        label: this.withHint("View Radius [a₀]", "viewRadius", "I/K"),
+      }),
     );
 
     slice
       .addButton({
         title: this.withHint("Reset View Radius", "resetViewRadius", "Z"),
       })
-      .on("click", () => this.appcore.resetViewRadius());
+      .on("click", () => this.facade.resetViewRadius());
 
     slice
-      .addBinding(this.appcore.params, "slicePlane", {
+      .addBinding(this.params, "slicePlane", {
         label: this.withHint("Selected Slice Plane", "slicePlane", "1/2/3"),
         options: {
           "XY Plane (Slice Z)": "xy",
@@ -315,67 +326,69 @@ class GUI {
           "YZ Plane (Slice X)": "yz",
         },
       })
-      .on("change", () => this.appcore.requestRender());
+      .on("change", () => this.facade.requestRender());
 
     this.bindings.sliceOffset = slice.addBinding(
-      this.appcore.params,
+      this.params,
       "sliceOffset",
-      {
-        label: this.withHint("Slice Offset [a\u2080]", "sliceOffset", "Shift+J/L"),
-        min: -1024,
-        max: 1024,
-      },
+      this.bindingOptionsFor("sliceOffset", {
+        label: this.withHint("Slice Offset [a₀]", "sliceOffset", "Shift+J/L"),
+      }),
     );
 
     slice
       .addButton({
         title: this.withHint("Reset Slice Offset", "resetSliceOffset", "Space"),
       })
-      .on("click", () => this.appcore.resetSliceOffset());
+      .on("click", () => this.facade.resetSliceOffset());
 
     this.bindings.viewRadius.on("change", () => this.updateViewConstraints());
-    this.bindings.sliceOffset.on("change", () => this.appcore.requestRender());
+    this.bindings.sliceOffset.on("change", () => this.facade.requestRender());
 
     this.addSeparator(page);
 
     const pan = page.addFolder({ title: "View Centre", expanded: true });
 
     pan
-      .addBinding(this.appcore.params.viewCentre, "x", {
-        label: this.withHint("Pan X [a\u2080]", "panX", "Shift+A/D"),
-        min: -256,
-        max: 256,
-        step: 0.1,
-      })
-      .on("change", () => this.appcore.requestRender());
+      .addBinding(
+        this.params.viewCentre,
+        "x",
+        this.bindingOptionsFor("viewCentre.x", {
+          label: this.withHint("Pan X [a₀]", "panX", "Shift+A/D"),
+        }),
+      )
+      .on("change", () => this.facade.requestRender());
 
     pan
-      .addBinding(this.appcore.params.viewCentre, "y", {
-        label: this.withHint("Pan Y [a\u2080]", "panY", "Shift+W/S"),
-        min: -256,
-        max: 256,
-        step: 0.1,
-      })
-      .on("change", () => this.appcore.requestRender());
+      .addBinding(
+        this.params.viewCentre,
+        "y",
+        this.bindingOptionsFor("viewCentre.y", {
+          label: this.withHint("Pan Y [a₀]", "panY", "Shift+W/S"),
+        }),
+      )
+      .on("change", () => this.facade.requestRender());
 
     pan
-      .addBinding(this.appcore.params.viewCentre, "z", {
-        label: this.withHint("Pan Z [a\u2080]", "panZ", "Shift+Q/E"),
-        min: -256,
-        max: 256,
-        step: 0.1,
-      })
-      .on("change", () => this.appcore.requestRender());
+      .addBinding(
+        this.params.viewCentre,
+        "z",
+        this.bindingOptionsFor("viewCentre.z", {
+          label: this.withHint("Pan Z [a₀]", "panZ", "Shift+Q/E"),
+        }),
+      )
+      .on("change", () => this.facade.requestRender());
 
     pan
       .addButton({
         title: this.withHint("Reset View Centre", "resetViewCentre", "X"),
       })
-      .on("click", () => this.appcore.resetViewCentre());
+      .on("click", () => this.facade.resetViewCentre());
   }
 
   createStatisticsTab(page) {
-    const { statistics, params } = this.appcore;
+    const statistics = this.statistics;
+    const params = this.params;
     const formatSigned = FormatUtils.formatSigned;
     const formatInt = FormatUtils.formatInt;
 
@@ -388,7 +401,7 @@ class GUI {
       .addBinding(params, "renderOverlay", {
         label: this.withHint("Toggle Statistics Overlay", "overlay", "O"),
       })
-      .on("change", () => this.appcore.requestRender());
+      .on("change", () => this.facade.requestRender());
 
     this.addSeparator(page);
 
@@ -399,19 +412,19 @@ class GUI {
 
     distribution.addBinding(statistics, "peakDensity", {
       readonly: true,
-      label: "Peak Density [m\u207b\u00b3]",
+      label: "Peak Density [m⁻³]",
       format: formatSigned,
     });
 
     distribution.addBinding(statistics, "mean", {
       readonly: true,
-      label: "Mean Density [m\u207b\u00b3]",
+      label: "Mean Density [m⁻³]",
       format: formatSigned,
     });
 
     distribution.addBinding(statistics, "stdDev", {
       readonly: true,
-      label: "Density Std Dev [m\u207b\u00b3]",
+      label: "Density Std Dev [m⁻³]",
       format: formatSigned,
     });
 
@@ -433,13 +446,13 @@ class GUI {
 
     radial.addBinding(statistics, "radialPeak", {
       readonly: true,
-      label: "Radial Peak [a\u2080]",
+      label: "Radial Peak [a₀]",
       format: formatSigned,
     });
 
     radial.addBinding(statistics, "radialSpread", {
       readonly: true,
-      label: "Radial Spread [a\u2080]",
+      label: "Radial Spread [a₀]",
       format: formatSigned,
     });
 
@@ -451,7 +464,8 @@ class GUI {
   }
 
   createMediaTab(page) {
-    const { media, params } = this.appcore;
+    const media = this.media;
+    const params = this.params;
 
     const imp = page.addFolder({ title: "Import Data" });
 
@@ -501,24 +515,24 @@ class GUI {
 
     const capture = exp.addFolder({ title: "Media Capture" });
 
-    capture.addBinding(params, "recordingFPS", {
-      label: "Recording FPS [Hz]",
-      min: 12,
-      max: 120,
-      step: 1,
-    });
+    capture.addBinding(
+      params,
+      "recordingFPS",
+      this.bindingOptionsFor("recordingFPS", { label: "Recording FPS [Hz]" }),
+    );
 
-    capture.addBinding(params, "videoBitrateMbps", {
-      label: "Video Bitrate [Mbps]",
-      min: 1,
-      max: 64,
-      step: 0.5,
-    });
+    capture.addBinding(
+      params,
+      "videoBitrateMbps",
+      this.bindingOptionsFor("videoBitrateMbps", {
+        label: "Video Bitrate [Mbps]",
+      }),
+    );
 
     this.recordButton = capture.addButton({
       title: media.isRecording
-        ? this.withHint("\u23f9 Stop Recording", "record", "Ctrl+R")
-        : this.withHint("\u23fa Start Recording", "record", "Ctrl+R"),
+        ? this.withHint("⏹ Stop Recording", "record", "Ctrl+R")
+        : this.withHint("⏺ Start Recording", "record", "Ctrl+R"),
     });
 
     this.recordButton.on("click", () => {
@@ -547,9 +561,9 @@ class GUI {
 
   syncMediaControls() {
     if (!this.recordButton) return;
-    this.recordButton.title = this.appcore.media.isRecording
-      ? this.withHint("\u23f9 Stop Recording", "record", "Ctrl+R")
-      : this.withHint("\u23fa Start Recording", "record", "Ctrl+R");
+    this.recordButton.title = this.media.isRecording
+      ? this.withHint("⏹ Stop Recording", "record", "Ctrl+R")
+      : this.withHint("⏺ Start Recording", "record", "Ctrl+R");
   }
 
   enforceConstraints() {
@@ -561,54 +575,46 @@ class GUI {
       !this.bindings.m
     ) {
       this.syncMassControlFromParams();
-      this.appcore.requestRender();
+      this.facade.requestRender();
       return;
     }
 
-    const params = this.appcore.params;
+    const store = this.store;
 
-    params.n = Math.max(
-      AppCore.QUANTUM_LIMITS.minN,
-      Math.min(
-        AppCore.QUANTUM_LIMITS.maxN,
-        Math.round(Number(params.n) || AppCore.QUANTUM_LIMITS.minN),
-      ),
-    );
+    // n / l / m are clamped by the store on every set; here we (a) re-run that
+    // clamp so a change to a referent re-clamps its dependents, and (b) push the
+    // now-current resolved range onto each slider so the UI matches.
+    const nRange = store.getRange("n");
+    this.bindings.n.min = nRange.min;
+    this.bindings.n.max = nRange.max;
+    store.set("n", store.get("n"));
 
-    this.bindings.n.min = AppCore.QUANTUM_LIMITS.minN;
-    this.bindings.n.max = AppCore.QUANTUM_LIMITS.maxN;
+    store.set("l", store.get("l")); // re-clamp against n - 1
+    const lRange = store.getRange("l");
+    this.bindings.l.min = lRange.min;
+    this.bindings.l.max = lRange.max;
 
-    params.nuclearCharge = Math.max(
-      1,
-      Math.min(20, Math.round(Number(params.nuclearCharge) || 1)),
-    );
+    store.set("m", store.get("m")); // re-clamp against ±l
+    const mRange = store.getRange("m");
+    this.bindings.m.min = mRange.min;
+    this.bindings.m.max = mRange.max;
 
-    this.bindings.l.max = params.n - 1;
+    store.set("nuclearCharge", store.get("nuclearCharge"));
 
-    if (params.l > this.bindings.l.max) params.l = this.bindings.l.max;
-
-    this.bindings.m.min = -params.l;
-    this.bindings.m.max = params.l;
-
-    params.m = Math.max(
-      this.bindings.m.min,
-      Math.min(this.bindings.m.max, params.m),
-    );
-
-    const orbitalLetter = this.getSpectroscopicLetter(params.l);
-    params.orbitalNotation = `${params.n}${orbitalLetter} (m=${params.m})`;
+    const orbitalLetter = this.getSpectroscopicLetter(store.get("l"));
+    this.statistics.orbitalNotation = `${store.get("n")}${orbitalLetter} (m=${store.get("m")})`;
 
     this.syncMassControlFromParams();
 
     this.pane.refresh();
-    this.appcore.requestRender();
+    this.facade.requestRender();
   }
 
   syncMassControlFromParams() {
-    const mass = Number(this.appcore.params.nucleusMassKg);
+    const mass = Number(this.params.nucleusMassKg);
     const fallback = 1.67262192369e-27;
     const safeMass = Number.isFinite(mass) && mass > 0 ? mass : fallback;
-    this.appcore.params.nucleusMassKg = safeMass;
+    this.params.nucleusMassKg = safeMass;
     this.massControl.nucleusMassLog10 = Math.max(
       -30,
       Math.min(-24, Math.log10(safeMass)),
@@ -617,22 +623,19 @@ class GUI {
 
   updateViewConstraints() {
     if (!this._tabsReady || !this.pane || !this.bindings.sliceOffset) {
-      this.appcore.requestRender();
+      this.facade.requestRender();
       return;
     }
 
-    const params = this.appcore.params;
+    const store = this.store;
 
-    this.bindings.sliceOffset.min = -params.viewRadius;
-    this.bindings.sliceOffset.max = params.viewRadius;
-
-    params.sliceOffset = Math.max(
-      this.bindings.sliceOffset.min,
-      Math.min(this.bindings.sliceOffset.max, params.sliceOffset),
-    );
+    store.set("sliceOffset", store.get("sliceOffset")); // re-clamp against ±viewRadius
+    const range = store.getRange("sliceOffset");
+    this.bindings.sliceOffset.min = range.min;
+    this.bindings.sliceOffset.max = range.max;
 
     this.pane.refresh();
-    this.appcore.requestRender();
+    this.facade.requestRender();
   }
 
   refresh() {
@@ -654,3 +657,5 @@ class GUI {
     this.pane = null;
   }
 }
+
+export { GUI };

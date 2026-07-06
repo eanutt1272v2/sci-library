@@ -1,8 +1,13 @@
 class Terrain {
-  constructor(appcore) {
-    this.appcore = appcore;
+  /**
+   * @param {{params: Object, p: Object}} facade - Live param view and the p5
+   *   instance (for noise/random generation). No AppCore back-reference.
+   */
+  constructor(facade) {
+    this.params = facade.params;
+    this.p = facade.p;
 
-    const { terrainSize } = this.appcore.params;
+    const { terrainSize } = this.params;
     this.size = terrainSize;
     this.area = terrainSize * terrainSize;
 
@@ -17,7 +22,7 @@ class Terrain {
     this.momentumXTrack = new Float32Array(this.area);
     this.momentumYTrack = new Float32Array(this.area);
 
-    this._float32Keys = Object.keys(this).filter(
+    this._floatMapKeys = Object.keys(this).filter(
       (k) => this[k] instanceof Float32Array,
     );
 
@@ -27,6 +32,17 @@ class Terrain {
       sediment: { min: 0, max: 0 },
       discharge: { min: 0, max: 0 },
     };
+  }
+
+  /**
+   * The names of every Float32Array map this terrain owns, captured once at
+   * construction (so a temporarily-nulled buffer, e.g. while the worker holds
+   * it, does not drop out of the list).
+   *
+   * @returns {string[]}
+   */
+  get floatMapKeys() {
+    return this._floatMapKeys;
   }
 
   getIndex(x, y) {
@@ -92,9 +108,15 @@ class Terrain {
     return { min: 0, max: 1 };
   }
 
-  getSurfaceNormal(x, y) {
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} heightScale - `params.heightScale`, read once by the
+   *   caller rather than per-pixel here — this is invoked up to size*size
+   *   times per texture regen.
+   */
+  getSurfaceNormal(x, y, heightScale) {
     const { size, heightMap, sharedNormal } = this;
-    const { heightScale } = this.appcore.params;
 
     const west = x > 0 ? y * size + (x - 1) : y * size + x;
     const east = x < size - 1 ? y * size + (x + 1) : y * size + x;
@@ -184,17 +206,18 @@ class Terrain {
   }
 
   generate() {
-    const { noiseScale, noiseOctaves, amplitudeFalloff } = this.appcore.params;
+    const { noiseScale, noiseOctaves, amplitudeFalloff } = this.params;
     const { size, area, heightMap, originalHeightMap, bedrockMap } = this;
+    const p = this.p;
 
     this.reset();
 
-    noiseDetail(
+    p.noiseDetail(
       Math.max(1, noiseOctaves | 0),
-      constrain(amplitudeFalloff, 0, 1),
+      p.constrain(amplitudeFalloff, 0, 1),
     );
-    const offsetX = random(100000);
-    const offsetY = random(100000);
+    const offsetX = p.random(100000);
+    const offsetY = p.random(100000);
     const freq = noiseScale / 100;
 
     for (let i = 0; i < area; i++) {
@@ -203,7 +226,7 @@ class Terrain {
 
       const sx = x * freq + offsetX;
       const sy = y * freq + offsetY;
-      const noiseVal = noise(sx, sy);
+      const noiseVal = p.noise(sx, sy);
       heightMap[i] = Math.pow(noiseVal, 1.2);
     }
 
@@ -218,148 +241,6 @@ class Terrain {
     }
 
     this.updateBoundsCache();
-  }
-
-  _scheduleChunk(task, label = "terrain task") {
-    if (typeof task !== "function") return;
-
-    if (
-      typeof AppDiagnostics !== "undefined" &&
-      typeof AppDiagnostics.scheduleFrameFriendlyTask === "function"
-    ) {
-      AppDiagnostics.scheduleFrameFriendlyTask(task, {
-        logger: this.appcore?._diagnosticsLogger,
-        label,
-        timeoutMs: 220,
-        useIdle: true,
-      });
-      return;
-    }
-
-    if (typeof requestAnimationFrame === "function") {
-      requestAnimationFrame(() => {
-        task();
-      });
-      return;
-    }
-
-    setTimeout(task, 0);
-  }
-
-  generateInChunks(options = {}) {
-    const { noiseScale, noiseOctaves, amplitudeFalloff } = this.appcore.params;
-    const {
-      size,
-      area,
-      heightMap,
-      originalHeightMap,
-      bedrockMap,
-      sedimentMap,
-      dischargeMap,
-      dischargeTrack,
-      momentumX,
-      momentumY,
-      momentumXTrack,
-      momentumYTrack,
-    } = this;
-
-    const {
-      chunkSize = 2048,
-      onComplete = null,
-      shouldAbort = null,
-    } = options || {};
-
-    const safeChunk = Math.max(256, Math.floor(Number(chunkSize) || 2048));
-    const isAborted =
-      typeof shouldAbort === "function"
-        ? () => Boolean(shouldAbort())
-        : () => false;
-    const finish = () => {
-      if (typeof onComplete === "function") {
-        onComplete();
-      }
-    };
-
-    if (area <= 0) {
-      this.bounds.height = { min: 0, max: 0 };
-      this.bounds.sediment = { min: 0, max: 0 };
-      this.bounds.discharge = { min: 0, max: 0 };
-      finish();
-      return;
-    }
-
-    noiseDetail(
-      Math.max(1, noiseOctaves | 0),
-      constrain(amplitudeFalloff, 0, 1),
-    );
-    const offsetX = random(100000);
-    const offsetY = random(100000);
-    const freq = noiseScale / 100;
-
-    let cursor = 0;
-    let min = Infinity;
-    let max = -Infinity;
-
-    const generateNoiseChunk = () => {
-      if (isAborted()) return;
-
-      const limit = Math.min(area, cursor + safeChunk);
-      for (let i = cursor; i < limit; i++) {
-        const x = i % size;
-        const y = (i / size) | 0;
-
-        const sx = x * freq + offsetX;
-        const sy = y * freq + offsetY;
-        const noiseVal = noise(sx, sy);
-        const elevation = Math.pow(noiseVal, 1.2);
-        heightMap[i] = elevation;
-        if (elevation < min) min = elevation;
-        if (elevation > max) max = elevation;
-      }
-
-      cursor = limit;
-      if (cursor < area) {
-        this._scheduleChunk(generateNoiseChunk, "terrain noise generation");
-        return;
-      }
-
-      const range = max - min || 1;
-      cursor = 0;
-
-      const normaliseChunk = () => {
-        if (isAborted()) return;
-
-        const normaliseLimit = Math.min(area, cursor + safeChunk);
-        for (let i = cursor; i < normaliseLimit; i++) {
-          const norm = (heightMap[i] - min) / range;
-          heightMap[i] = norm;
-          bedrockMap[i] = norm;
-          originalHeightMap[i] = norm;
-          sedimentMap[i] = 0;
-          dischargeMap[i] = 0;
-          dischargeTrack[i] = 0;
-          momentumX[i] = 0;
-          momentumY[i] = 0;
-          momentumXTrack[i] = 0;
-          momentumYTrack[i] = 0;
-        }
-
-        cursor = normaliseLimit;
-        if (cursor < area) {
-          this._scheduleChunk(normaliseChunk, "terrain normalisation");
-          return;
-        }
-
-        this.bounds.height = { min: 0, max: 1 };
-        this.bounds.sediment = { min: 0, max: 0 };
-        this.bounds.discharge = { min: 0, max: 0 };
-        finish();
-      };
-
-      this._scheduleChunk(normaliseChunk, "terrain normalisation");
-    };
-
-    this._scheduleChunk(generateNoiseChunk, "terrain noise generation");
   }
 
   reset() {
@@ -391,3 +272,5 @@ class Terrain {
     this.updateBoundsCache();
   }
 }
+
+export { Terrain };

@@ -1,78 +1,10 @@
-"use strict";
+// Module worker: loaded with `{ type: "module" }` and importing its
+// dependencies directly, replacing the previous `importScripts(...)` bridge.
+import { WorkerSanitisers } from "../../../_shared/utils/WorkerSanitisers.js";
+import { installWorkerErrorReporter } from "../../../_shared/utils/WorkerErrorReporter.js";
+import { QMath } from "../math/QMath.js";
 
-if (typeof importScripts === "function") {
-  try {
-    importScripts("../../../_shared/utils/WorkerSanitisers.js");
-  } catch (_error) {
-    console.error(
-      "Failed to load WorkerSanitisers.js, using built-in fallback sanitisers. This may cause issues if the main thread is relying on custom sanitisation logic.",
-      _error,
-    );
-  }
-
-  try {
-    importScripts("../math/QMath.js");
-  } catch (_error) {
-    console.error("Failed to load QMath.js.", _error);
-  }
-}
-
-const _workerSanitisers =
-  globalThis.WorkerSanitisers ||
-  Object.freeze({
-    toFiniteNumber(value, fallback = 0) {
-      const numeric = Number(value);
-      return Number.isFinite(numeric) ? numeric : fallback;
-    },
-    toInteger(value, fallback, min, max) {
-      const numeric = Math.round(this.toFiniteNumber(value, fallback));
-      return numeric < min ? min : numeric > max ? max : numeric;
-    },
-  });
-
-function _toWorkerErrorPayload(stage, error) {
-  if (error && typeof error === "object") {
-    return {
-      type: "workerError",
-      stage,
-      name: String(error.name || "Error"),
-      message: String(error.message || "Worker failure"),
-      stack: String(error.stack || ""),
-    };
-  }
-
-  return {
-    type: "workerError",
-    stage,
-    name: "Error",
-    message: String(error || "Worker failure"),
-    stack: "",
-  };
-}
-
-function _reportWorkerError(stage, error) {
-  const payload = _toWorkerErrorPayload(stage, error);
-  try {
-    self.postMessage(payload);
-  } catch {
-    console.warn(
-      "[PsiWorker] Failed to post error message to main thread. Original error:",
-      payload,
-    );
-  }
-  try {
-    console.error(`[PsiWorker] ${payload.stage}: ${payload.message}`);
-  } catch (_) {}
-}
-
-self.onerror = function (_message, _source, _lineno, _colno, error) {
-  _reportWorkerError("runtime", error || _message);
-  return false;
-};
-
-self.onunhandledrejection = function (event) {
-  _reportWorkerError("unhandledrejection", event?.reason);
-};
+const _reportWorkerError = installWorkerErrorReporter(self, "PsiWorker");
 
 const CONSTS = {
   electronMassKg: 9.1093837015e-31,
@@ -80,20 +12,11 @@ const CONSTS = {
   bohrRadiusM: 5.29177210903e-11,
 };
 
-function clamp(value, min, max) {
-  if (value < min) return min;
-  if (value > max) return max;
-  return value;
-}
+const clamp = WorkerSanitisers.clamp;
+const toFiniteNumber = WorkerSanitisers.toFiniteNumber;
+const toInteger = WorkerSanitisers.toInteger;
 
-const toFiniteNumber = _workerSanitisers.toFiniteNumber;
-const toInteger = _workerSanitisers.toInteger;
-
-const { logGamma, genLaguerre, assocLegendre } = globalThis.QMath || {};
-
-if (!logGamma || !genLaguerre || !assocLegendre) {
-  console.error("[PsiWorker] QMath failed to load. Wavefunction evaluation will not work.");
-}
+const { logGamma, genLaguerre, assocLegendre } = QMath;
 
 function sanitiseRenderPayload(data) {
   const n = toInteger(data.n, 1, 1, 12);

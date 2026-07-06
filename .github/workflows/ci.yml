@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: nothing here writes to the repo.
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24"
+
+  # ── Security scanner: official Trivy release binary, provenance-verified ─────
+  # No third-party actions or tools — only GitHub-native tooling. We fetch
+  # Trivy's official release binary and verify it two ways before running it:
+  #
+  #   1. Its SHA-256 must equal TRIVY_TARBALL_SHA256 below — a value verified
+  #      out-of-band three independent ways (Trivy's checksums.txt, GitHub's
+  #      release API, and a local sha256sum) at the time it was pinned.
+  #   2. `gh attestation verify` — the official GitHub CLI, pre-installed on the
+  #      runner — validates Trivy's SLSA build-provenance attestation: it checks
+  #      the sigstore signature (Fulcio root + the public Rekor transparency log)
+  #      and that the binary was built by a workflow in the real
+  #      github.com/aquasecurity/trivy repo. That provenance names source commit
+  #      8a32853686209a428179bb3a1688802b25691564 (Trivy v0.72.0) — the immutable
+  #      source this binary traces back to.
+  #
+  # To upgrade Trivy, change exactly these two lines (version + hash); re-derive
+  # the hash from the new release's checksums.txt.
+  TRIVY_VERSION: "0.72.0"
+  TRIVY_TARBALL_SHA256: "bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea"
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-24.04
+    steps:
+      # Pinned to commit SHAs (immutable), not mutable tags. Both are GitHub's
+      # own official actions/* org. SHAs are the commits v4 pointed at when this
+      # was written.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # No install step: this repo has zero dependencies (see package.json).
+      - run: npm test
+
+  security:
+    name: security
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Fetch and verify Trivy (checksum + GitHub build provenance)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Work in RUNNER_TEMP, NOT the checkout: keeps the downloaded binary out
+          # of the filesystem scan below (trivy fs would otherwise inspect its own
+          # Go binary and flag Trivy's own dependency CVEs).
+          cd "$RUNNER_TEMP"
+          base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
+          tarball="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+
+          echo "::group::download official release binary"
+          curl -sfL -o "$tarball" "$base/$tarball"
+          echo "::endgroup::"
+
+          echo "::group::1/2 tarball matches the pinned, out-of-band-verified hash"
+          echo "${TRIVY_TARBALL_SHA256}  ${tarball}" | sha256sum -c -
+          echo "::endgroup::"
+
+          echo "::group::2/2 GitHub-native build provenance (sigstore + Rekor, via gh)"
+          # Validates the SLSA attestation's sigstore signature and that the
+          # binary was built by a workflow in the real aquasecurity/trivy repo.
+          gh attestation verify "$tarball" --repo aquasecurity/trivy
+          echo "::endgroup::"
+
+          tar -xzf "$tarball" trivy
+          ./trivy --version
+          # Put the verified binary on PATH for the scan steps that follow.
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      # Filesystem scan of the repo (dependencies, secrets, IaC misconfig).
+      # Gates on CRITICAL/HIGH only; --ignore-unfixed avoids a permanently-red
+      # build over CVEs that have no available patch yet.
+      - name: Trivy filesystem scan
+        run: |
+          trivy fs \
+            --scanners vuln,secret,misconfig \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 1 \
+            .
+
+      # Build the image that actually ships (caddy:2-alpine + library/) and scan
+      # it — this is what catches OS-package CVEs in the deployed artifact, which
+      # the filesystem scan alone does not.
+      - name: Build shipped image
+        run: docker build -t sci-library:ci -f Dockerfile .
+
+      - name: Trivy image scan
+        run: |
+          trivy image \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 1 \
+            sci-library:ci

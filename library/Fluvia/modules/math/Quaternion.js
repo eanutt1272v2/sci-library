@@ -57,3 +57,5 @@ class Quaternion {
     return this;
   }
 }
+
+export { Quaternion };

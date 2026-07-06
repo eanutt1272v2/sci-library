@@ -1,22 +1,25 @@
 class AssetLoader {
-  static _fallbackLogger() {
-    return { info() {}, warn() {}, error() {}, debug() {} };
-  }
-
-  static _resolveLogger(logger) {
-    if (logger && typeof logger.warn === "function") {
-      return logger;
-    }
-    return AssetLoader._fallbackLogger();
-  }
-
+  /**
+   * Load the preferred UI font. Primary path is a WOFF2 via the framework-
+   * independent FontFace API; it falls back to p5's `loadFont` on a TTF (for
+   * WEBGL text, which needs a real p5.Font), and finally to the bare family
+   * string. Returns whatever the caller can hand to `textFont` — a family
+   * string or a p5.Font.
+   *
+   * @param {Object} opts
+   * @param {string} [opts.family]
+   * @param {string} [opts.woff2Path]
+   * @param {string} [opts.ttfPath]
+   * @param {Object} [opts.p] - p5 instance, for the TTF `loadFont` fallback.
+   *   Passed explicitly so this file has no p5 global-mode dependency.
+   * @returns {Promise<string|Object>}
+   */
   static async loadPreferredFont({
     family = "Iosevka",
     woff2Path = "",
     ttfPath = "",
-    logger = null,
+    p = null,
   } = {}) {
-    const safeLogger = AssetLoader._resolveLogger(logger);
     const safeFamily = String(family || "Iosevka");
 
     const canUseFontFace =
@@ -38,10 +41,7 @@ class AssetLoader {
         const face = new FontFace(
           safeFamily,
           `url("${woff2Path}") format("woff2")`,
-          {
-            style: "normal",
-            weight: "400",
-          },
+          { style: "normal", weight: "400" },
         );
 
         const loadedFace = await face.load();
@@ -53,19 +53,19 @@ class AssetLoader {
 
         return safeFamily;
       } catch (error) {
-        safeLogger.warn(
-          `WOFF2 FontFace load failed for ${safeFamily}; falling back to TTF loadFont:`,
+        console.warn(
+          `[AssetLoader] WOFF2 FontFace load failed for ${safeFamily}; falling back to TTF:`,
           error,
         );
       }
     }
 
-    if (typeof loadFont === "function" && ttfPath) {
+    if (p && typeof p.loadFont === "function" && ttfPath) {
       try {
-        return await loadFont(ttfPath);
+        return await p.loadFont(ttfPath);
       } catch (error) {
-        safeLogger.warn(
-          `TTF loadFont fallback failed for ${safeFamily}; using family string fallback:`,
+        console.warn(
+          `[AssetLoader] TTF loadFont fallback failed for ${safeFamily}; using family string:`,
           error,
         );
       }
@@ -74,43 +74,43 @@ class AssetLoader {
     return safeFamily;
   }
 
-  static async loadJSONAsset(
-    path,
-    { logger = null, label = "JSON asset" } = {},
-  ) {
-    const safeLogger = AssetLoader._resolveLogger(logger);
-
-    if (typeof loadJSON !== "function") {
-      const error = new Error("p5 loadJSON is unavailable");
-      safeLogger.error(`${label} loader unavailable:`, error);
-      throw error;
-    }
-
+  /**
+   * Load and parse a same-origin JSON asset via `fetch`. No p5 dependency, so
+   * this works identically whether p5 runs in global or instance mode.
+   *
+   * @param {string} path
+   * @param {{label?: string}} [opts]
+   * @returns {Promise<*>}
+   */
+  static async loadJSONAsset(path, { label = "JSON asset" } = {}) {
     try {
-      return await loadJSON(path);
+      const response = await fetch(path);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} loading ${path}`);
+      }
+      return await response.json();
     } catch (error) {
-      safeLogger.error(`${label} load failed:`, error);
+      console.error(`[AssetLoader] ${label} load failed:`, error);
       throw error;
     }
   }
 
-  static async loadShaderSource(
-    path,
-    { logger = null, label = "Shader source" } = {},
-  ) {
-    const safeLogger = AssetLoader._resolveLogger(logger);
-
-    if (typeof loadStrings !== "function") {
-      const error = new Error("p5 loadStrings is unavailable");
-      safeLogger.error(`${label} loader unavailable:`, error);
-      throw error;
-    }
-
+  /**
+   * Load a same-origin text asset (e.g. a shader source) via `fetch`.
+   *
+   * @param {string} path
+   * @param {{label?: string}} [opts]
+   * @returns {Promise<string>}
+   */
+  static async loadShaderSource(path, { label = "Shader source" } = {}) {
     try {
-      const lines = await loadStrings(path);
-      return Array.isArray(lines) ? lines.join("\n") : "";
+      const response = await fetch(path);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} loading ${path}`);
+      }
+      return await response.text();
     } catch (error) {
-      safeLogger.error(`${label} load failed:`, error);
+      console.error(`[AssetLoader] ${label} load failed:`, error);
       throw error;
     }
   }

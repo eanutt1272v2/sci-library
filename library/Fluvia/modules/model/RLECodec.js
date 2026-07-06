@@ -161,3 +161,5 @@ class RLECodec {
     return `${count > 1 ? count : ""}${token}`;
   }
 }
+
+export { RLECodec };

@@ -1,6 +1,21 @@
+import { RLECodec } from "../model/RLECodec.js";
+
+/**
+ * Media handles import/export. It extends the shared `MediaCore` (a frozen
+ * classic-global file in `_shared/utils` — not yet an ES module, loaded via a
+ * plain `<script>` tag before this module, so the bare `MediaCore` identifier
+ * resolves via the shared top-level lexical scope) which stores its
+ * constructor argument as `this.appcore`. That field name is fixed by the
+ * frozen parent class, but the *value* passed in from `AppCore` is the narrow
+ * Media facade below (`{params, statistics, colourMaps, metadata, terrain,
+ * refreshGUI, queueAction, sanitiseParams, normaliseTerrainSize,
+ * reallocateTerrainBuffers, withWorkerPaused, resizeTerrain,
+ * reinitialiseAnalyser, reinitialise, p}`) — never the real `AppCore`
+ * instance — so `this.appcore.X` below always resolves against that facade.
+ */
 class Media extends MediaCore {
-  constructor(appcore) {
-    super(appcore, "[Fluvia][Media]");
+  constructor(facade) {
+    super(facade, "[Fluvia][Media]");
     this._heightmapExportDeferred = false;
     this._worldExportDeferred = false;
     this._maxEncodedMapChars = 32 * 1024 * 1024;
@@ -25,7 +40,7 @@ class Media extends MediaCore {
     reader.onload = (event) => {
       const imgSrc = event.target.result;
 
-      loadImage(
+      this.appcore.p.loadImage(
         imgSrc,
         (img) => {
           try {
@@ -169,13 +184,13 @@ class Media extends MediaCore {
 
   exportWorldJSON() {
     const { terrain } = this.appcore;
-    const hasBuffers = terrain._float32Keys.some((k) => terrain[k]);
+    const hasBuffers = terrain.floatMapKeys.some((k) => terrain[k]);
 
     if (!hasBuffers) {
       if (!this._worldExportDeferred) {
         this._worldExportDeferred = true;
-        if (typeof this.appcore._queueAction === "function") {
-          this.appcore._queueAction("exportWorldJSON", () => {
+        if (typeof this.appcore.queueAction === "function") {
+          this.appcore.queueAction("exportWorldJSON", () => {
             this._worldExportDeferred = false;
             this.exportWorldJSON();
           });
@@ -195,7 +210,7 @@ class Media extends MediaCore {
     this._worldExportDeferred = false;
 
     const maps = {};
-    for (const key of terrain._float32Keys) {
+    for (const key of terrain.floatMapKeys) {
       if (terrain[key] instanceof Float32Array) {
         maps[key] = this._encodeWorldMap(terrain[key]);
       }
@@ -241,7 +256,7 @@ class Media extends MediaCore {
         const maps = world.maps;
 
         const { terrain } = this.appcore;
-        for (const key of terrain._float32Keys) {
+        for (const key of terrain.floatMapKeys) {
           if (!this._isEncodedWorldMap(maps[key])) {
             throw new Error(`[Fluvia] Invalid world JSON: missing maps.${key}`);
           }
@@ -252,33 +267,34 @@ class Media extends MediaCore {
           throw new Error("[Fluvia] Invalid world JSON: invalid terrainSize");
         }
 
-        const normalisedSize = this.appcore._normaliseTerrainSize(incomingSize);
+        const normalisedSize = this.appcore.normaliseTerrainSize(incomingSize);
+        let importedTerrain;
 
-        this.appcore._terminateWorker();
-        if (normalisedSize !== this.appcore.params.terrainSize) {
-          this.appcore.params.terrainSize = normalisedSize;
-          this.appcore.terrain = new Terrain(this.appcore);
-        } else {
-          this.appcore._reallocTerrainBuffers();
-        }
-
-        const importedTerrain = this.appcore.terrain;
-        for (const key of importedTerrain._float32Keys) {
-          if (this._isEncodedWorldMap(maps[key])) {
-            this._copyArrayInto(
-              importedTerrain[key],
-              this._decodeWorldMap(maps[key], importedTerrain[key].length),
-            );
+        this.appcore.withWorkerPaused(() => {
+          if (normalisedSize !== this.appcore.params.terrainSize) {
+            this.appcore.resizeTerrain(normalisedSize);
+          } else {
+            this.appcore.reallocateTerrainBuffers();
           }
-        }
 
-        importedTerrain.updateBoundsCache();
-        this.appcore.analyser.reinitialise();
-        this._applyParamsSnapshot(data.params, {
-          forceTerrainSize: normalisedSize,
+          importedTerrain = this.appcore.terrain;
+          for (const key of importedTerrain.floatMapKeys) {
+            if (this._isEncodedWorldMap(maps[key])) {
+              this._copyArrayInto(
+                importedTerrain[key],
+                this._decodeWorldMap(maps[key], importedTerrain[key].length),
+              );
+            }
+          }
+
+          importedTerrain.updateBoundsCache();
+          this.appcore.reinitialiseAnalyser();
+          this._applyParamsSnapshot(data.params, {
+            forceTerrainSize: normalisedSize,
+          });
+          this._applyStatisticsSnapshot(data.statistics);
         });
-        this._applyStatisticsSnapshot(data.statistics);
-        this.appcore._initWorker();
+
         this.appcore.refreshGUI();
         this._logInfo(`World JSON imported: size=${importedTerrain.size}`);
       });
@@ -290,8 +306,8 @@ class Media extends MediaCore {
     if (!terrain || !terrain.heightMap) {
       if (!this._heightmapExportDeferred) {
         this._heightmapExportDeferred = true;
-        if (typeof this.appcore._queueAction === "function") {
-          this.appcore._queueAction("exportHeightmapPNG", () => {
+        if (typeof this.appcore.queueAction === "function") {
+          this.appcore.queueAction("exportHeightmapPNG", () => {
             this._heightmapExportDeferred = false;
             this.exportHeightmapPNG();
           });
@@ -425,12 +441,12 @@ class Media extends MediaCore {
     const target = this.appcore.params;
     this._mergeByTargetSchema(target, incoming);
 
-    if (typeof this.appcore._sanitiseParams === "function") {
-      this.appcore._sanitiseParams();
+    if (typeof this.appcore.sanitiseParams === "function") {
+      this.appcore.sanitiseParams();
     }
 
     if (typeof options.forceTerrainSize === "number") {
-      target.terrainSize = this.appcore._normaliseTerrainSize(
+      target.terrainSize = this.appcore.normaliseTerrainSize(
         options.forceTerrainSize,
       );
     }
@@ -482,3 +498,5 @@ class Media extends MediaCore {
     return `${name}_${version}_${renderMethod}_${surfaceMap}_${terrainSize}_${ts}.${extension}`;
   }
 }
+
+export { Media };

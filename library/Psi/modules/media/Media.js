@@ -1,13 +1,33 @@
+import { PSI_SCHEMA } from "../core/ParamSchema.js";
+
+/**
+ * Media — Psi's import/export/recording surface.
+ *
+ * Extends the shared `MediaCore` (a classic-script global from
+ * `_shared/utils/MediaCore.js`; not yet an ES module — frozen as part of the
+ * Stage A shared-layer work, hence no `import` here). `MediaCore` itself reads
+ * `this.appcore.params` / `this.appcore.refreshGUI()` internally, so the value
+ * passed to `super()` must satisfy that shape — this is exactly Media's own
+ * narrow facade (`{store, params, statistics, analyser, metadata, refreshGUI,
+ * enforceConstraints, syncViewConstraints, sanitiseParams}`), not a
+ * back-reference to the full AppCore.
+ */
 class Media extends MediaCore {
-  constructor(appcore) {
-    super(appcore, "[Psi][Media]");
+  /**
+   * @param {Object} facade - Media's view of AppCore: `{store, params,
+   *   statistics, analyser, metadata, refreshGUI, enforceConstraints,
+   *   syncViewConstraints, sanitiseParams}`.
+   */
+  constructor(facade) {
+    super(facade, "[Psi][Media]");
+    this.facade = facade;
   }
 
   exportParamsJSON() {
     const payload = {
       format: "simpipe.params",
       metadata: this._getMetadataSnapshot(),
-      params: this._cloneJSONCompatible(this.appcore.params),
+      params: this._cloneJSONCompatible(this.facade.params),
       exportedAt: new Date().toISOString(),
     };
     this._downloadJSON(payload, this._getFilename("params.json"));
@@ -19,7 +39,7 @@ class Media extends MediaCore {
       this._readJSONFile(file, (data) => {
         this._applyMetadataSnapshot(data.metadata);
         this._applyParamsPayload(data);
-        this.appcore.refreshGUI();
+        this.facade.refreshGUI();
         this._logInfo("Params JSON imported");
       });
     });
@@ -85,30 +105,60 @@ class Media extends MediaCore {
       throw new Error("[Psi] Invalid params JSON format version");
     }
 
-    this._mergeByTargetSchema(this.appcore.params, data.params);
-
-    if (typeof this.appcore._sanitisePhysicalParams === "function") {
-      this.appcore._sanitisePhysicalParams();
+    // ParamStore's enum coercion is an exact match against its (lowercase)
+    // option list — it has no notion of normalising case the way the old
+    // pre-rearchitecture import path did. Restore that here so a hand-edited
+    // or externally-produced "PNG"/"JPG" is accepted instead of silently
+    // reverting to the default.
+    if (typeof data.params.imageFormat === "string") {
+      data.params.imageFormat = data.params.imageFormat.toLowerCase();
     }
 
-    this.appcore.gui.enforceConstraints();
-    this.appcore.syncViewConstraints();
+    // An invalid/missing nucleusMassKg used to fall back to a nuclearCharge-
+    // scaled proton-mass estimate, not the bare proton mass — ParamStore's
+    // generic float coercion has no notion of another param, so restore that
+    // scaling here before the value ever reaches the store.
+    if (data.params.nucleusMassKg !== undefined) {
+      const importedMass = Number(data.params.nucleusMassKg);
+      if (!Number.isFinite(importedMass) || importedMass <= 0) {
+        const protonMassKg = PSI_SCHEMA.nucleusMassKg.default;
+        const Z = Math.max(
+          1,
+          Math.round(
+            Number(data.params.nuclearCharge ?? this.facade.params.nuclearCharge) || 1,
+          ),
+        );
+        data.params.nucleusMassKg =
+          Z === 1 ? protonMassKg : Math.max(protonMassKg, Z * protonMassKg);
+      }
+    }
+
+    this._mergeByTargetSchema(this.facade.params, data.params);
+
+    // Confirmed bug fix (was: this.appcore._sanitisePhysicalParams(), a method
+    // that never existed — silently no-op'd behind a typeof guard). Resolved
+    // through the facade's own naming rather than reinstating the old
+    // (also-wrong) call site.
+    this.facade.sanitiseParams();
+
+    this.facade.enforceConstraints();
+    this.facade.syncViewConstraints();
   }
 
   _getMetadataSnapshot() {
-    return this._cloneJSONCompatible(this.appcore.metadata || {});
+    return this._cloneJSONCompatible(this.facade.metadata || {});
   }
 
   _getStatisticsSnapshot() {
     return {
-      statistics: this._cloneJSONCompatible(this.appcore.statistics || {}),
+      statistics: this._cloneJSONCompatible(this.facade.statistics || {}),
       series: this._getSeriesSnapshot(),
     };
   }
 
   _getSeriesSnapshot(limit = 10000) {
-    const source = Array.isArray(this.appcore.analyser?.series)
-      ? this.appcore.analyser.series
+    const source = Array.isArray(this.facade.analyser?.series)
+      ? this.facade.analyser.series
       : [];
     const safe = this._cloneJSONCompatible(source);
     if (!Array.isArray(safe)) return [];
@@ -116,8 +166,8 @@ class Media extends MediaCore {
   }
 
   _getFilename(extension) {
-    const { name, version } = this.appcore.metadata;
-    const { orbitalNotation } = this.appcore.params;
+    const { name, version } = this.facade.metadata;
+    const { orbitalNotation } = this.facade.statistics;
     const safeOrbital = (orbitalNotation || "orbital")
       .replace(/\s+/g, "_")
       .replace(/[()=]/g, "")
@@ -127,3 +177,5 @@ class Media extends MediaCore {
     return `${name}_${version}_${safeOrbital}_${ts}.${extension}`;
   }
 }
+
+export { Media };

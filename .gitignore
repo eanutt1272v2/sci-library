@@ -3,3 +3,5 @@ todo.md
 node_modules/
 .DS_Store
 *.log
+.claudebox/
+steady-roaming-quokka.md

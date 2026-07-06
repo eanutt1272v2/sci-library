@@ -24,7 +24,8 @@ class FormatUtils {
   }
 
   static formatFixed(value, digits = 3) {
-    const n = Number(value) || 0;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return (0).toFixed(digits);
     const abs = Math.abs(n);
     if (abs > 0 && abs < Math.pow(10, -digits)) {
       const [mantissa, exponent] = n.toExponential(2).split("e");
@@ -33,3 +34,5 @@ class FormatUtils {
     return n.toFixed(digits);
   }
 }
+
+export { FormatUtils };

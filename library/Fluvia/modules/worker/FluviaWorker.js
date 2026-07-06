@@ -1,74 +1,11 @@
 "use strict";
 
-if (typeof importScripts === "function") {
-  try {
-    importScripts("../../../_shared/utils/WorkerSanitisers.js");
-  } catch (_error) {
-    console.error(
-      "Failed to load WorkerSanitisers.js, using built-in fallback sanitisers. This may cause issues if the main thread is relying on custom sanitisation logic.",
-      _error,
-    );
-  }
-}
+import { WorkerSanitisers } from "../../../_shared/utils/WorkerSanitisers.js";
+import { installWorkerErrorReporter } from "../../../_shared/utils/WorkerErrorReporter.js";
 
-const _workerSanitisers =
-  globalThis.WorkerSanitisers ||
-  Object.freeze({
-    toFiniteNumber(value, fallback = 0) {
-      const numeric = Number(value);
-      return Number.isFinite(numeric) ? numeric : fallback;
-    },
-    toInteger(value, fallback, min, max) {
-      const numeric = Math.round(this.toFiniteNumber(value, fallback));
-      return numeric < min ? min : numeric > max ? max : numeric;
-    },
-  });
+const _workerSanitisers = WorkerSanitisers;
 
-function _toWorkerErrorPayload(stage, error) {
-  if (error && typeof error === "object") {
-    return {
-      type: "workerError",
-      stage,
-      name: String(error.name || "Error"),
-      message: String(error.message || "Worker failure"),
-      stack: String(error.stack || ""),
-    };
-  }
-
-  return {
-    type: "workerError",
-    stage,
-    name: "Error",
-    message: String(error || "Worker failure"),
-    stack: "",
-  };
-}
-
-function _reportWorkerError(stage, error) {
-  const payload = _toWorkerErrorPayload(stage, error);
-  try {
-    self.postMessage(payload);
-  } catch {
-    console.log(
-      "[FluviaWorker] Failed to post error message to main thread. Original error:",
-      payload,
-    );
-  }
-  try {
-    console.error(`[FluviaWorker] ${payload.stage}: ${payload.message}`);
-  } catch {
-    // Ignore logging failures because obviously logging shouldn't cause more errors. If this fails, there's not much we can do about it. It's up to the bloody user to fix their console if it can't handle error messages.
-  }
-}
-
-self.onerror = function (_message, _source, _lineno, _colno, error) {
-  _reportWorkerError("runtime", error || _message);
-  return false;
-};
-
-self.onunhandledrejection = function (event) {
-  _reportWorkerError("unhandledrejection", event?.reason);
-};
+const _reportWorkerError = installWorkerErrorReporter(self, "FluviaWorker");
 
 const SQRT2 = Math.SQRT2;
 const HISTOGRAM_BINS = 256;
@@ -188,10 +125,7 @@ function getDischarge(dischargeMap, index) {
   return codyErf(0.4 * dischargeMap[index]);
 }
 
-function clamp(value, min, max) {
-  return value < min ? min : value > max ? max : value;
-}
-
+const clamp = _workerSanitisers.clamp;
 const toFiniteNumber = _workerSanitisers.toFiniteNumber;
 const toInteger = _workerSanitisers.toInteger;
 
@@ -211,6 +145,11 @@ function coerceFloatMap(buffer, length) {
 }
 
 function sanitiseStepPayload(data) {
+  // 8-2048 here is a generic worker-side dimension safety bound (defence in
+  // depth against a malformed/malicious message), not the user-facing
+  // terrainSize range — that range lives in FLUVIA_SCHEMA (128-512, snapped to
+  // one of AppCore.ALLOWED_TERRAIN_SIZES) and is enforced before a message is
+  // ever sent. Do not "fix" this into matching the schema's range.
   const size = toInteger(data.size, 256, 8, 2048);
   const area = size * size;
   const params =

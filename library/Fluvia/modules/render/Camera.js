@@ -1,6 +1,17 @@
+import { Quaternion } from "../math/Quaternion.js";
+
 class Camera {
-  constructor(appcore) {
-    this.appcore = appcore;
+  /**
+   * @param {{params: Object, store: Object, p: Object}} facade - Live param
+   *   view, the store (for resolving cameraSmoothing/cameraOrbitSensitivity/
+   *   cameraZoomSensitivity's bounds via `getRange` instead of hardcoding
+   *   them here), plus the p5 instance (for math helpers and pointer/touch
+   *   sketch state).
+   */
+  constructor(facade) {
+    this.params = facade.params;
+    this.store = facade.store;
+    this.p = facade.p;
 
     this.target = {
       yaw: 0,
@@ -28,14 +39,16 @@ class Camera {
   }
 
   _getMotionAlpha() {
-    const smoothingRaw = Number(this.appcore?.params?.cameraSmoothing);
+    const p = this.p;
+    const { min, max } = this.store.getRange("cameraSmoothing");
+    const smoothingRaw = Number(this.params?.cameraSmoothing);
     const smoothing = Number.isFinite(smoothingRaw)
-      ? constrain(smoothingRaw, 0, 0.98)
+      ? p.constrain(smoothingRaw, min, max)
       : this.defaultSmoothing;
 
     const baseAlpha = 1 - smoothing;
-    const dtMs = Number(globalThis.deltaTime);
-    const frameScale = constrain(
+    const dtMs = Number(p.deltaTime);
+    const frameScale = p.constrain(
       (Number.isFinite(dtMs) ? dtMs : 16.6667) / 16.6667,
       0.25,
       4,
@@ -45,22 +58,27 @@ class Camera {
   }
 
   _getOrbitSensitivity() {
-    const raw = Number(this.appcore?.params?.cameraOrbitSensitivity);
-    return Number.isFinite(raw) ? constrain(raw, 0.001, 0.03) : 0.007;
+    const raw = Number(this.params?.cameraOrbitSensitivity);
+    if (!Number.isFinite(raw)) return 0.007;
+    const { min, max } = this.store.getRange("cameraOrbitSensitivity");
+    return this.p.constrain(raw, min, max);
   }
 
   _getZoomSensitivity() {
-    const raw = Number(this.appcore?.params?.cameraZoomSensitivity);
-    return Number.isFinite(raw) ? constrain(raw, 0.05, 3) : 0.5;
+    const raw = Number(this.params?.cameraZoomSensitivity);
+    if (!Number.isFinite(raw)) return 0.5;
+    const { min, max } = this.store.getRange("cameraZoomSensitivity");
+    return this.p.constrain(raw, min, max);
   }
 
   update() {
     const { current, target } = this;
+    const p = this.p;
     const alpha = this._getMotionAlpha();
 
-    current.yaw = lerp(current.yaw, target.yaw, alpha);
-    current.pitch = lerp(current.pitch, target.pitch, alpha);
-    current.zoom = lerp(current.zoom, target.zoom, alpha);
+    current.yaw = p.lerp(current.yaw, target.yaw, alpha);
+    current.pitch = p.lerp(current.pitch, target.pitch, alpha);
+    current.zoom = p.lerp(current.zoom, target.zoom, alpha);
 
     this.quaternion = Quaternion.fromEuler(
       current.pitch,
@@ -87,27 +105,33 @@ class Camera {
       Number(event?.deltaY) ||
       Number(event?.wheelDelta) ||
       0;
-    this.target.zoom = max(
+    this.target.zoom = this.p.max(
       20,
       this.target.zoom + rawDelta * this._getZoomSensitivity(),
     );
   }
 
   beginPointer(event) {
-    const touchCount = touches.length;
+    const p = this.p;
+    const touchCount = p.touches.length;
     const { gesture } = this;
 
     if (touchCount === 1) {
-      gesture.orbit = { x: touches[0].x, y: touches[0].y };
+      gesture.orbit = { x: p.touches[0].x, y: p.touches[0].y };
       gesture.pinch = null;
       return;
     }
 
     if (touchCount === 2) {
       gesture.pinch = {
-        distance: max(
+        distance: p.max(
           1,
-          dist(touches[0].x, touches[0].y, touches[1].x, touches[1].y),
+          p.dist(
+            p.touches[0].x,
+            p.touches[0].y,
+            p.touches[1].x,
+            p.touches[1].y,
+          ),
         ),
       };
       gesture.orbit = null;
@@ -117,8 +141,8 @@ class Camera {
     const x = Number(event?.offsetX);
     const y = Number(event?.offsetY);
     gesture.orbit = {
-      x: Number.isFinite(x) ? x : mouseX,
-      y: Number.isFinite(y) ? y : mouseY,
+      x: Number.isFinite(x) ? x : p.mouseX,
+      y: Number.isFinite(y) ? y : p.mouseY,
     };
     gesture.pinch = null;
   }
@@ -129,19 +153,20 @@ class Camera {
   }
 
   handlePointer(event) {
-    const touchCount = touches.length;
+    const p = this.p;
+    const touchCount = p.touches.length;
 
     if (touchCount === 1) {
-      this.handleOrbit(touches[0]);
+      this.handleOrbit(p.touches[0]);
       return;
     }
 
     if (touchCount === 2) {
-      this.handlePinch(touches[0], touches[1]);
+      this.handlePinch(p.touches[0], p.touches[1]);
       return;
     }
 
-    if (touchCount === 0 && mouseIsPressed) {
+    if (touchCount === 0 && p.mouseIsPressed) {
       const movementX = Number(event?.movementX);
       const movementY = Number(event?.movementY);
       if (Number.isFinite(movementX) && Number.isFinite(movementY)) {
@@ -149,8 +174,8 @@ class Camera {
         return;
       }
 
-      this.singlePointer.x = mouseX;
-      this.singlePointer.y = mouseY;
+      this.singlePointer.x = p.mouseX;
+      this.singlePointer.y = p.mouseY;
       this.handleOrbit(this.singlePointer);
       return;
     }
@@ -159,20 +184,21 @@ class Camera {
   }
 
   applyOrbitDelta(deltaX, deltaY) {
+    const p = this.p;
     const sensitivity = this._getOrbitSensitivity();
-    const dx = constrain(
+    const dx = p.constrain(
       deltaX * sensitivity,
       -this.maxOrbitStep,
       this.maxOrbitStep,
     );
-    const dy = constrain(
+    const dy = p.constrain(
       deltaY * sensitivity,
       -this.maxOrbitStep,
       this.maxOrbitStep,
     );
 
     this.target.yaw += dx;
-    this.target.pitch = constrain(this.target.pitch + dy, -1.56, 1.56);
+    this.target.pitch = p.constrain(this.target.pitch + dy, -1.56, 1.56);
   }
 
   handleOrbit(touch) {
@@ -193,8 +219,9 @@ class Camera {
   }
 
   handlePinch(t1, t2) {
+    const p = this.p;
     const { gesture, target } = this;
-    const distance = dist(t1.x, t1.y, t2.x, t2.y);
+    const distance = p.dist(t1.x, t1.y, t2.x, t2.y);
 
     if (!gesture.pinch) {
       gesture.pinch = { distance };
@@ -202,10 +229,16 @@ class Camera {
       return;
     }
 
-    const ratio = constrain(distance / max(1, gesture.pinch.distance), 0.5, 2);
+    const ratio = p.constrain(
+      distance / p.max(1, gesture.pinch.distance),
+      0.5,
+      2,
+    );
     const zoomFactor = Math.pow(ratio, this._getZoomSensitivity());
-    target.zoom = max(20, target.zoom / zoomFactor);
+    target.zoom = p.max(20, target.zoom / zoomFactor);
 
-    gesture.pinch.distance = max(1, distance);
+    gesture.pinch.distance = p.max(1, distance);
   }
 }
+
+export { Camera };
