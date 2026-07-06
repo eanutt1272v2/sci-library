@@ -168,10 +168,7 @@ function getDischarge(dischargeMap, index) {
   return codyErf(0.4 * dischargeMap[index]);
 }
 
-function clamp(value, min, max) {
-  return value < min ? min : value > max ? max : value;
-}
-
+const clamp = _workerSanitisers.clamp;
 const toFiniteNumber = _workerSanitisers.toFiniteNumber;
 const toInteger = _workerSanitisers.toInteger;
 

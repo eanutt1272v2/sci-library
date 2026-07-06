@@ -30,6 +30,23 @@ function makeStubP5(overrides = {}) {
   };
 }
 
+/**
+ * A minimal store stub covering exactly what Camera calls: getRange for the
+ * three schema-declared camera-control bounds, matching FLUVIA_SCHEMA.
+ */
+function makeStubStore() {
+  const ranges = {
+    cameraSmoothing: { min: 0, max: 0.98 },
+    cameraOrbitSensitivity: { min: 0.001, max: 0.03 },
+    cameraZoomSensitivity: { min: 0.05, max: 3 },
+  };
+  return {
+    getRange(key) {
+      return ranges[key];
+    },
+  };
+}
+
 function makeFacade(paramsOverrides = {}, pOverrides = {}) {
   return {
     params: {
@@ -38,6 +55,7 @@ function makeFacade(paramsOverrides = {}, pOverrides = {}) {
       cameraZoomSensitivity: 0.5,
       ...paramsOverrides,
     },
+    store: makeStubStore(),
     p: makeStubP5(pOverrides),
   };
 }

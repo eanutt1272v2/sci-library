@@ -88,14 +88,6 @@ class AppCore {
       compositeMeanWaterAlpha: 0,
     };
 
-    this._defaultColourPalette = {
-      skyColour: { ...this.params.skyColour },
-      steepColour: { ...this.params.steepColour },
-      flatColour: { ...this.params.flatColour },
-      sedimentColour: { ...this.params.sedimentColour },
-      waterColour: { ...this.params.waterColour },
-    };
-
     this.initialiseModules();
     this.terrain.generate();
   }
@@ -157,7 +149,7 @@ class AppCore {
     const self = this;
 
     this.terrain = new Terrain(this._terrainFacade());
-    this.camera = new Camera({ params: this.params, p });
+    this.camera = new Camera({ params: this.params, store: this.store, p });
     this.renderer = new Renderer({
       params: this.params,
       statistics: this.statistics,
@@ -248,14 +240,6 @@ class AppCore {
       reinitialiseAnalyser: () => self.analyser.reinitialise(),
       reinitialise: () => self.reinitialise(),
     };
-  }
-
-  _clampNumber(value, min, max, fallback = min) {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return fallback;
-    if (numeric < min) return min;
-    if (numeric > max) return max;
-    return numeric;
   }
 
   /**

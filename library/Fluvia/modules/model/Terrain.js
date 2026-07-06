@@ -108,9 +108,15 @@ class Terrain {
     return { min: 0, max: 1 };
   }
 
-  getSurfaceNormal(x, y) {
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} heightScale - `params.heightScale`, read once by the
+   *   caller rather than per-pixel here — this is invoked up to size*size
+   *   times per texture regen.
+   */
+  getSurfaceNormal(x, y, heightScale) {
     const { size, heightMap, sharedNormal } = this;
-    const { heightScale } = this.params;
 
     const west = x > 0 ? y * size + (x - 1) : y * size + x;
     const east = x < size - 1 ? y * size + (x + 1) : y * size + x;

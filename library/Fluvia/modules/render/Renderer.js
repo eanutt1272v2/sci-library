@@ -197,6 +197,7 @@ class Renderer {
       waterColour,
       skyColour,
       specularIntensity,
+      heightScale,
     } = params;
 
     const { size, area, heightMap, originalHeightMap, sedimentMap } = terrain;
@@ -243,7 +244,7 @@ class Renderer {
       if (surfaceMap === "composite") {
         const x = i % size;
         const y = (i / size) | 0;
-        const normal = terrain.getSurfaceNormal(x, y);
+        const normal = terrain.getSurfaceNormal(x, y, heightScale);
 
         const dot = normal.x * lX + normal.y * lY + normal.z * lZ;
         const diffuse = Math.max(0, dot);
@@ -299,7 +300,7 @@ class Renderer {
           v = (hVal - bounds.min) / bounds.range;
         } else if (surfaceMap === "slope") {
           rawFieldValue =
-            1 - terrain.getSurfaceNormal(i % size, (i / size) | 0).y;
+            1 - terrain.getSurfaceNormal(i % size, (i / size) | 0, heightScale).y;
           v = rawFieldValue;
         } else if (surfaceMap === "discharge") {
           rawFieldValue = terrain.getDischarge(i);
@@ -470,16 +471,12 @@ class Renderer {
     }
 
     const terrain = this.terrain;
-    const params = this.params;
+    const { skyColour, heightScale } = this.params;
     const camera = this.camera;
     const eye = camera.getEyePosition();
     const up = camera.getUpVector();
 
-    canvas3D.background(
-      params.skyColour.r,
-      params.skyColour.g,
-      params.skyColour.b,
-    );
+    canvas3D.background(skyColour.r, skyColour.g, skyColour.b);
 
     canvas3D.push();
     canvas3D.resetMatrix();
@@ -493,7 +490,7 @@ class Renderer {
     canvas3D.shader(terrainShader);
     terrainShader.setUniform("uHeightMap", heightMapTexture);
     terrainShader.setUniform("uTexture", canvas2D);
-    terrainShader.setUniform("uHeightScale", params.heightScale);
+    terrainShader.setUniform("uHeightScale", heightScale);
 
     const pSize = terrain.size * 2;
     canvas3D.plane(pSize, pSize, terrain.size - 1, terrain.size - 1);
@@ -600,6 +597,15 @@ class Renderer {
         { l: "Flat", cKey: "flatColour", t: 0.66 },
         { l: "Steep", cKey: "steepColour", t: 0.9 },
       ];
+      // Resolve each colour once — cKey lookups below used to re-read the
+      // params proxy per anchor per frame (plus twice more for the first/
+      // last stops), for the same handful of keys every time.
+      const colourByKey = {
+        waterColour: params.waterColour,
+        sedimentColour: params.sedimentColour,
+        flatColour: params.flatColour,
+        steepColour: params.steepColour,
+      };
 
       const x = p.width - 20;
       const y1 = 20;
@@ -612,14 +618,14 @@ class Renderer {
         .map((anchor) => ({ stop: 1 - anchor.t, cKey: anchor.cKey }))
         .sort((a, b) => a.stop - b.stop);
 
-      const firstColour = params[stops[0].cKey];
-      const lastColour = params[stops[stops.length - 1].cKey];
+      const firstColour = colourByKey[stops[0].cKey];
+      const lastColour = colourByKey[stops[stops.length - 1].cKey];
       grad.addColorStop(
         0,
         `rgb(${firstColour.r}, ${firstColour.g}, ${firstColour.b})`,
       );
       stops.forEach((stop) => {
-        const c = params[stop.cKey];
+        const c = colourByKey[stop.cKey];
         grad.addColorStop(stop.stop, `rgb(${c.r}, ${c.g}, ${c.b})`);
       });
       grad.addColorStop(

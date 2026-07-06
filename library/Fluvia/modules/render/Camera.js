@@ -2,11 +2,15 @@ import { Quaternion } from "../math/Quaternion.js";
 
 class Camera {
   /**
-   * @param {{params: Object, p: Object}} facade - Live param view plus the p5
-   *   instance (for math helpers and pointer/touch sketch state).
+   * @param {{params: Object, store: Object, p: Object}} facade - Live param
+   *   view, the store (for resolving cameraSmoothing/cameraOrbitSensitivity/
+   *   cameraZoomSensitivity's bounds via `getRange` instead of hardcoding
+   *   them here), plus the p5 instance (for math helpers and pointer/touch
+   *   sketch state).
    */
   constructor(facade) {
     this.params = facade.params;
+    this.store = facade.store;
     this.p = facade.p;
 
     this.target = {
@@ -36,9 +40,10 @@ class Camera {
 
   _getMotionAlpha() {
     const p = this.p;
+    const { min, max } = this.store.getRange("cameraSmoothing");
     const smoothingRaw = Number(this.params?.cameraSmoothing);
     const smoothing = Number.isFinite(smoothingRaw)
-      ? p.constrain(smoothingRaw, 0, 0.98)
+      ? p.constrain(smoothingRaw, min, max)
       : this.defaultSmoothing;
 
     const baseAlpha = 1 - smoothing;
@@ -54,12 +59,16 @@ class Camera {
 
   _getOrbitSensitivity() {
     const raw = Number(this.params?.cameraOrbitSensitivity);
-    return Number.isFinite(raw) ? this.p.constrain(raw, 0.001, 0.03) : 0.007;
+    if (!Number.isFinite(raw)) return 0.007;
+    const { min, max } = this.store.getRange("cameraOrbitSensitivity");
+    return this.p.constrain(raw, min, max);
   }
 
   _getZoomSensitivity() {
     const raw = Number(this.params?.cameraZoomSensitivity);
-    return Number.isFinite(raw) ? this.p.constrain(raw, 0.05, 3) : 0.5;
+    if (!Number.isFinite(raw)) return 0.5;
+    const { min, max } = this.store.getRange("cameraZoomSensitivity");
+    return this.p.constrain(raw, min, max);
   }
 
   update() {

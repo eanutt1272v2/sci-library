@@ -72,7 +72,12 @@ new p5((p) => {
       // `globalThis` unless a global-mode sketch also declares `setup`/`draw`
       // at the top level, which this entry point deliberately does not (it is
       // fully instance-mode). Bridge just the three loaders AssetLoader needs,
-      // scoped tightly to this call and torn down in `finally`.
+      // scoped tightly to this call and torn down in `finally`. This is safe
+      // only because every AssetLoader call happens inside this setup() —
+      // remove this bridge once AssetLoader.js is migrated to take `p`
+      // explicitly instead of reading globals (a future shared-layer cleanup
+      // pass, not yet scheduled); do not extend this shim's lifetime to cover
+      // a future runtime asset reload outside setup().
       globalThis.loadFont = p.loadFont.bind(p);
       globalThis.loadJSON = p.loadJSON.bind(p);
       globalThis.loadStrings = p.loadStrings.bind(p);
