@@ -161,13 +161,14 @@ class Renderer {
 
   render() {
     const p = this.p;
+    const params = this._params();
     const {
       pixelSmoothing,
       renderOverlay,
       renderNodeOverlay,
       renderLegend,
       renderKeymapRef,
-    } = this._params();
+    } = params;
     p.background(0);
     if (this._lastPixelSmoothing !== pixelSmoothing) {
       if (pixelSmoothing) {
@@ -178,15 +179,19 @@ class Renderer {
       this._lastPixelSmoothing = pixelSmoothing;
     }
     if (this.buffer) p.image(this.buffer, 0, 0, p.width, p.height);
-    if (renderNodeOverlay) this.renderNodeOverlay();
-    if (renderOverlay) this.renderOverlay();
+    if (renderNodeOverlay) this.renderNodeOverlay(params);
+    if (renderOverlay) this.renderOverlay(params);
     if (renderLegend) this.renderLegend();
     if (renderKeymapRef) this.renderKeymapRef();
   }
 
-  renderOverlay() {
+  /**
+   * @param {Object} params - A single frame's params, computed once in
+   *   `render()` and threaded through here (and to `renderNodeOverlay`)
+   *   rather than each overlay re-snapshotting the store independently.
+   */
+  renderOverlay(params) {
     const p = this.p;
-    const params = this._params();
     const {
       n, l, m, nuclearCharge,
       viewRadius, sliceOffset, viewCentre,
@@ -266,9 +271,11 @@ class Renderer {
     p.pop();
   }
 
-  renderNodeOverlay() {
+  /**
+   * @param {Object} params - See {@link Renderer#renderOverlay}.
+   */
+  renderNodeOverlay(params) {
     const p = this.p;
-    const params = this._params();
     const analyser = this.analyser;
     if (!analyser || typeof analyser.computeNodeOverlayData !== "function") return;
     const { axis1, axis2, fixedAxis } = this.getPlaneAxes();

@@ -174,12 +174,15 @@ class GUI {
         "nuclearCharge",
         this.bindingOptionsFor("nuclearCharge", {
           label: this.withHint("Nuclear Charge Z", "nuclearCharge", "R/T"),
-          format: (v) =>
-            String(Math.max(1, Math.min(20, Math.round(Number(v) || 1)))),
+          format: (v) => {
+            const { min, max } = this.store.getRange("nuclearCharge");
+            return String(Math.max(min, Math.min(max, Math.round(Number(v) || min))));
+          },
         }),
       )
       .on("change", (ev) => {
-        const z = Math.max(1, Math.min(20, Math.round(Number(ev.value) || 1)));
+        const { min, max } = this.store.getRange("nuclearCharge");
+        const z = Math.max(min, Math.min(max, Math.round(Number(ev.value) || min)));
         if (this.params.nuclearCharge !== z) {
           this.params.nuclearCharge = z;
           this.pane.refresh();

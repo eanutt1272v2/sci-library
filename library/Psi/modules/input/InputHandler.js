@@ -81,7 +81,8 @@ class InputHandler {
     if (zoomInDown || zoomOutDown) {
       const delta = (zoomOutDown ? 0.75 : 0) - (zoomInDown ? 0.75 : 0);
       if (delta !== 0) {
-        params.viewRadius = p.constrain(params.viewRadius + delta, 1, 256);
+        const { min, max } = this.store.getRange("viewRadius");
+        params.viewRadius = p.constrain(params.viewRadius + delta, min, max);
         needsRender = true;
         syncViewConstraints = true;
       }
@@ -125,10 +126,11 @@ class InputHandler {
     const isMinus = this._isHintHeld("resolution", 1);
 
     if (isPlus || isMinus) {
+      const { min, max } = this.store.getRange("resolution");
       params.resolution = p.constrain(
         params.resolution + (isPlus ? 2 : -2),
-        64,
-        512,
+        min,
+        max,
       );
       needsRender = true;
     }
@@ -442,7 +444,8 @@ class InputHandler {
     const { params } = this;
     const { axis1, axis2 } = this.facade.getPlaneAxes();
     const oldRadius = params.viewRadius;
-    const newRadius = p.constrain(oldRadius * zoomScale, 1, 256);
+    const { min, max } = this.store.getRange("viewRadius");
+    const newRadius = p.constrain(oldRadius * zoomScale, min, max);
     if (Math.abs(newRadius - oldRadius) < 1e-6) return false;
 
     const worldX = params.viewCentre[axis1] + (nx * 2 - 1) * oldRadius;

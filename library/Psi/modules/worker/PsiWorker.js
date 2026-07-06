@@ -53,12 +53,7 @@ const CONSTS = {
   bohrRadiusM: 5.29177210903e-11,
 };
 
-function clamp(value, min, max) {
-  if (value < min) return min;
-  if (value > max) return max;
-  return value;
-}
-
+const clamp = WorkerSanitisers.clamp;
 const toFiniteNumber = WorkerSanitisers.toFiniteNumber;
 const toInteger = WorkerSanitisers.toInteger;
 
