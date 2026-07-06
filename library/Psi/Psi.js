@@ -95,10 +95,9 @@ new p5((p) => {
           family: "Iosevka",
           woff2Path: "../../_shared/fonts/Iosevka-Regular.woff2",
           ttfPath: "../../_shared/fonts/Iosevka-Regular.ttf",
-          logger: console,
+          p,
         }),
         AssetLoader.loadJSONAsset("../../_shared/json/colour-maps.json", {
-          logger: console,
           label: "Psi colour maps",
         }),
       ]);
