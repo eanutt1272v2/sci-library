@@ -66,16 +66,19 @@ new p5((p) => {
   let appcore;
   let colourMaps, font;
 
-  // Compatibility shim for the shared MediaCore.js (frozen — see this repo's
-  // _shared/** freeze; not editable from this app). MediaCore.exportImage()
-  // calls the bare globals `saveCanvas`/`save`, which only exist when p5 runs
-  // in global mode. Instance mode never puts them on `window`, so — following
-  // this codebase's existing precedent of a `globalThis.X = X` compatibility
-  // bridge for not-yet-migrated consumers (see ARCHITECTURE.md's "Module
-  // system & interop") — bind the instance's own methods onto `window` under
-  // the same names so MediaCore's image export keeps working unmodified.
+  // Compatibility shim for the shared MediaCore.js/KeyboardUtils.js (frozen —
+  // see this repo's _shared/** freeze; not editable from this app).
+  // MediaCore.exportImage() calls the bare globals `saveCanvas`/`save`, and
+  // KeyboardUtils.isKeyDown() calls the bare global `keyIsDown` — all three
+  // only exist when p5 runs in global mode. Instance mode never puts them on
+  // `window`, so — following this codebase's existing precedent of a
+  // `globalThis.X = X` compatibility bridge for not-yet-migrated consumers
+  // (see ARCHITECTURE.md's "Module system & interop") — bind the instance's
+  // own methods onto `window` under the same names so these frozen consumers
+  // keep working unmodified.
   window.saveCanvas = (...args) => p.saveCanvas(...args);
   window.save = (...args) => p.save(...args);
+  window.keyIsDown = (...args) => p.keyIsDown(...args);
 
   function disposeAppCore() {
     if (!appcore || typeof appcore.dispose !== "function") return;

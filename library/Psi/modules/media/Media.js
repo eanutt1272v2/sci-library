@@ -1,3 +1,5 @@
+import { PSI_SCHEMA } from "../core/ParamSchema.js";
+
 /**
  * Media — Psi's import/export/recording surface.
  *
@@ -101,6 +103,34 @@ class Media extends MediaCore {
     }
     if (data.format !== "simpipe.params") {
       throw new Error("[Psi] Invalid params JSON format version");
+    }
+
+    // ParamStore's enum coercion is an exact match against its (lowercase)
+    // option list — it has no notion of normalising case the way the old
+    // pre-rearchitecture import path did. Restore that here so a hand-edited
+    // or externally-produced "PNG"/"JPG" is accepted instead of silently
+    // reverting to the default.
+    if (typeof data.params.imageFormat === "string") {
+      data.params.imageFormat = data.params.imageFormat.toLowerCase();
+    }
+
+    // An invalid/missing nucleusMassKg used to fall back to a nuclearCharge-
+    // scaled proton-mass estimate, not the bare proton mass — ParamStore's
+    // generic float coercion has no notion of another param, so restore that
+    // scaling here before the value ever reaches the store.
+    if (data.params.nucleusMassKg !== undefined) {
+      const importedMass = Number(data.params.nucleusMassKg);
+      if (!Number.isFinite(importedMass) || importedMass <= 0) {
+        const protonMassKg = PSI_SCHEMA.nucleusMassKg.default;
+        const Z = Math.max(
+          1,
+          Math.round(
+            Number(data.params.nuclearCharge ?? this.facade.params.nuclearCharge) || 1,
+          ),
+        );
+        data.params.nucleusMassKg =
+          Z === 1 ? protonMassKg : Math.max(protonMassKg, Z * protonMassKg);
+      }
     }
 
     this._mergeByTargetSchema(this.facade.params, data.params);
