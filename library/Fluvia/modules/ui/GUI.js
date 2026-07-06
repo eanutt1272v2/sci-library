@@ -7,11 +7,12 @@ class GUI {
    * @param {Object} facade - Narrow GUI dependencies: the live `params` view,
    *   the `store` (for resolving current bounds via `getRange`), `statistics`,
    *   `metadata`, `colourMaps`, the `media` sibling, and discrete AppCore
-   *   commands (`generate`, `reset`, `cycleColourMap`, `cycleSurfaceMap`). No
-   *   AppCore back-reference. Fluvia has no render-queue or relative-bound
-   *   constraint-sync concept (unlike Psi), so this facade omits
-   *   `requestRender`/`syncViewConstraints` — there is nothing here to swap
-   *   them in for.
+   *   commands (`generate`, `reset`). No AppCore back-reference. Fluvia has no
+   *   render-queue or relative-bound constraint-sync concept (unlike Psi), so
+   *   this facade omits `requestRender`/`syncViewConstraints` — there is
+   *   nothing here to swap them in for. `cycleColourMap`/`cycleSurfaceMap` are
+   *   InputHandler's commands, not GUI's — GUI has no control that invokes
+   *   either.
    */
   constructor(facade) {
     this.params = facade.params;
@@ -22,8 +23,6 @@ class GUI {
     this.media = facade.media;
     this.generate = facade.generate;
     this.reset = facade.reset;
-    this.cycleColourMap = facade.cycleColourMap;
-    this.cycleSurfaceMap = facade.cycleSurfaceMap;
 
     this.recordButton = null;
     this._tabsReady = false;

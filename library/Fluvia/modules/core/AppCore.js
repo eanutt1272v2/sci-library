@@ -579,15 +579,15 @@ class AppCore {
   _generateNow() {
     const { terrain, params } = this;
 
-    this._terminateWorker();
     if (terrain.size !== params.terrainSize) {
       this._reinitialiseNow();
       return;
     }
-    this.reallocateTerrainBuffers();
-    terrain.generate();
-    this.analyser.reinitialise();
-    this._initWorker();
+    this.withWorkerPaused(() => {
+      this.reallocateTerrainBuffers();
+      terrain.generate();
+      this.analyser.reinitialise();
+    });
   }
 
   reset() {
@@ -595,11 +595,11 @@ class AppCore {
   }
 
   _resetNow() {
-    this._terminateWorker();
-    this.reallocateTerrainBuffers();
-    this.terrain.reset();
-    this.analyser.reinitialise();
-    this._initWorker();
+    this.withWorkerPaused(() => {
+      this.reallocateTerrainBuffers();
+      this.terrain.reset();
+      this.analyser.reinitialise();
+    });
   }
 
   reinitialise() {
@@ -607,12 +607,12 @@ class AppCore {
   }
 
   _reinitialiseNow() {
-    this._terminateWorker();
-    this.terrain = new Terrain(this._terrainFacade());
-    this.renderer.reinitialise();
-    this.terrain.generate();
-    this.analyser.reinitialise();
-    this._initWorker();
+    this.withWorkerPaused(() => {
+      this.terrain = new Terrain(this._terrainFacade());
+      this.renderer.reinitialise();
+      this.terrain.generate();
+      this.analyser.reinitialise();
+    });
   }
 
   /**
@@ -631,15 +631,22 @@ class AppCore {
    * Run `fn` with the worker torn down and rebuilt around it. Collapses the
    * always-paired terminate/reinit sequence its callers used to write by hand.
    *
+   * Deliberately does not reinitialise on failure: if `fn` throws (e.g. a
+   * corrupted world-JSON import partway through copying terrain buffers into
+   * freshly-resized/reallocated buffers), the worker is left terminated
+   * rather than silently resumed against inconsistent state — matching the
+   * pre-rearchitecture behaviour, where a mid-sequence throw left the app
+   * requiring a manual Generate/Reset instead of resuming silently on
+   * corrupted data. The one current caller (`Media.importWorldJSON`) already
+   * runs inside a try/catch (`MediaCore._readJSONFile`) that logs a thrown
+   * error, so this still fails safely, just without an unconditional reinit.
+   *
    * @param {Function} fn - Work to perform while the worker is stopped.
    */
   withWorkerPaused(fn) {
     this._terminateWorker();
-    try {
-      if (typeof fn === "function") fn();
-    } finally {
-      this._initWorker();
-    }
+    if (typeof fn === "function") fn();
+    this._initWorker();
   }
 
   _terminateWorker() {
