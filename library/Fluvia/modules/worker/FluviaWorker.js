@@ -1,28 +1,8 @@
 "use strict";
 
-if (typeof importScripts === "function") {
-  try {
-    importScripts("../../../_shared/utils/WorkerSanitisers.js");
-  } catch (_error) {
-    console.error(
-      "Failed to load WorkerSanitisers.js, using built-in fallback sanitisers. This may cause issues if the main thread is relying on custom sanitisation logic.",
-      _error,
-    );
-  }
-}
+import { WorkerSanitisers } from "../../../_shared/utils/WorkerSanitisers.js";
 
-const _workerSanitisers =
-  globalThis.WorkerSanitisers ||
-  Object.freeze({
-    toFiniteNumber(value, fallback = 0) {
-      const numeric = Number(value);
-      return Number.isFinite(numeric) ? numeric : fallback;
-    },
-    toInteger(value, fallback, min, max) {
-      const numeric = Math.round(this.toFiniteNumber(value, fallback));
-      return numeric < min ? min : numeric > max ? max : numeric;
-    },
-  });
+const _workerSanitisers = WorkerSanitisers;
 
 function _toWorkerErrorPayload(stage, error) {
   if (error && typeof error === "object") {
@@ -211,6 +191,11 @@ function coerceFloatMap(buffer, length) {
 }
 
 function sanitiseStepPayload(data) {
+  // 8-2048 here is a generic worker-side dimension safety bound (defence in
+  // depth against a malformed/malicious message), not the user-facing
+  // terrainSize range — that range lives in FLUVIA_SCHEMA (128-512, snapped to
+  // one of AppCore.ALLOWED_TERRAIN_SIZES) and is enforced before a message is
+  // ever sent. Do not "fix" this into matching the schema's range.
   const size = toInteger(data.size, 256, 8, 2048);
   const area = size * size;
   const params =

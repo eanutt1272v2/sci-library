@@ -1,8 +1,13 @@
 class Terrain {
-  constructor(appcore) {
-    this.appcore = appcore;
+  /**
+   * @param {{params: Object, p: Object}} facade - Live param view and the p5
+   *   instance (for noise/random generation). No AppCore back-reference.
+   */
+  constructor(facade) {
+    this.params = facade.params;
+    this.p = facade.p;
 
-    const { terrainSize } = this.appcore.params;
+    const { terrainSize } = this.params;
     this.size = terrainSize;
     this.area = terrainSize * terrainSize;
 
@@ -17,7 +22,7 @@ class Terrain {
     this.momentumXTrack = new Float32Array(this.area);
     this.momentumYTrack = new Float32Array(this.area);
 
-    this._float32Keys = Object.keys(this).filter(
+    this._floatMapKeys = Object.keys(this).filter(
       (k) => this[k] instanceof Float32Array,
     );
 
@@ -27,6 +32,17 @@ class Terrain {
       sediment: { min: 0, max: 0 },
       discharge: { min: 0, max: 0 },
     };
+  }
+
+  /**
+   * The names of every Float32Array map this terrain owns, captured once at
+   * construction (so a temporarily-nulled buffer, e.g. while the worker holds
+   * it, does not drop out of the list).
+   *
+   * @returns {string[]}
+   */
+  get floatMapKeys() {
+    return this._floatMapKeys;
   }
 
   getIndex(x, y) {
@@ -94,7 +110,7 @@ class Terrain {
 
   getSurfaceNormal(x, y) {
     const { size, heightMap, sharedNormal } = this;
-    const { heightScale } = this.appcore.params;
+    const { heightScale } = this.params;
 
     const west = x > 0 ? y * size + (x - 1) : y * size + x;
     const east = x < size - 1 ? y * size + (x + 1) : y * size + x;
@@ -184,17 +200,18 @@ class Terrain {
   }
 
   generate() {
-    const { noiseScale, noiseOctaves, amplitudeFalloff } = this.appcore.params;
+    const { noiseScale, noiseOctaves, amplitudeFalloff } = this.params;
     const { size, area, heightMap, originalHeightMap, bedrockMap } = this;
+    const p = this.p;
 
     this.reset();
 
-    noiseDetail(
+    p.noiseDetail(
       Math.max(1, noiseOctaves | 0),
-      constrain(amplitudeFalloff, 0, 1),
+      p.constrain(amplitudeFalloff, 0, 1),
     );
-    const offsetX = random(100000);
-    const offsetY = random(100000);
+    const offsetX = p.random(100000);
+    const offsetY = p.random(100000);
     const freq = noiseScale / 100;
 
     for (let i = 0; i < area; i++) {
@@ -203,7 +220,7 @@ class Terrain {
 
       const sx = x * freq + offsetX;
       const sy = y * freq + offsetY;
-      const noiseVal = noise(sx, sy);
+      const noiseVal = p.noise(sx, sy);
       heightMap[i] = Math.pow(noiseVal, 1.2);
     }
 
@@ -249,3 +266,5 @@ class Terrain {
     this.updateBoundsCache();
   }
 }
+
+export { Terrain };

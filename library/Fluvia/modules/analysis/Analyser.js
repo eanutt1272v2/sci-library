@@ -1,12 +1,23 @@
 class Analyser {
-  constructor(appcore) {
-    this.appcore = appcore;
+  /**
+   * @param {{statistics: Object, terrain: Object, params: Object, p: Object}}
+   *   facade - `terrain` is read live (it is reassigned on regen); the rest are
+   *   stable references. No AppCore back-reference.
+   */
+  constructor(facade) {
+    this._facade = facade;
+    this.statistics = facade.statistics;
+    this.p = facade.p;
     this.simulationStartTime = performance.now();
     this.reinitialise();
   }
 
+  get terrain() {
+    return this._facade.terrain;
+  }
+
   reinitialise() {
-    const statistics = this.appcore.statistics;
+    const statistics = this.statistics;
 
     this.simulationStartTime = performance.now();
 
@@ -48,17 +59,17 @@ class Analyser {
   }
 
   update() {
-    const { statistics, params } = this.appcore;
-    statistics.fps = frameRate();
+    const statistics = this.statistics;
+    statistics.fps = this.p.frameRate();
     statistics.frameCounter++;
     statistics.simulationTime =
       (performance.now() - this.simulationStartTime) / 1000;
 
-    if (!params.running) return;
+    if (!this._facade.params.running) return;
   }
 
   _hasTerrainBuffers() {
-    const t = this.appcore.terrain;
+    const t = this.terrain;
     return !!(
       t &&
       t.heightMap &&
@@ -90,7 +101,7 @@ class Analyser {
   applyWorkerAnalysis(analysis) {
     if (!analysis || typeof analysis !== "object") return;
 
-    const statistics = this.appcore.statistics;
+    const statistics = this.statistics;
     const setNumber = (key) => {
       const value = Number(analysis[key]);
       if (Number.isFinite(value)) statistics[key] = value;
@@ -148,7 +159,7 @@ class Analyser {
   }
 
   getAverageHeightInRegion(nx, ny, nSize) {
-    const { size, heightMap } = this.appcore.terrain;
+    const { size, heightMap } = this.terrain;
     const startX = (nx * size) | 0,
       startY = (ny * size) | 0,
       edge = (nSize * size) | 0;
@@ -164,10 +175,12 @@ class Analyser {
   }
 
   getHypsometricIntegral(threshold = 0.5) {
-    const { heightHistogram } = this.appcore.statistics;
+    const { heightHistogram } = this.statistics;
     const startBin = (threshold * 255) | 0;
     let countAbove = 0;
     for (let i = startBin; i < 256; i++) countAbove += heightHistogram[i];
-    return (countAbove / this.appcore.terrain.area) * 100;
+    return (countAbove / this.terrain.area) * 100;
   }
 }
+
+export { Analyser };
