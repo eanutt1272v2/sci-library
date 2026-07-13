@@ -40,6 +40,13 @@ Open `http://localhost:8080`.
 
 ---
 
-### Licence
+## Licence
 
-See [`LICENSE`](./LICENSE).
+This repository is released under the [MIT Licence](LICENSE).
+
+You are free to use, copy, modify, merge, publish, distribute, sublicense,
+and sell copies of the scripts, provided the original copyright notice and
+this licence notice are retained in all copies or substantial portions of the
+software.
+
+See the [LICENSE](LICENSE) file in the repository root for the complete licence text.
